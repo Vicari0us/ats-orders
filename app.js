@@ -91,7 +91,7 @@ const PRICE_LISTS = {
     { name: 'Helios Injectable', keywords: ['helios inj', 'helios inject', 'clen yohimbe'], sell: 300, pref: 240, cost: 180 },
     { name: 'Mastaject 100', keywords: ['mastaject 100', 'mast 100', 'masteron 100', 'drostanolone 100'], sell: 400, pref: 350, cost: 300 },
     { name: 'Mastaject 200', keywords: ['mastaject 200', 'mast 200', 'masteron 200', 'drostanolone 200'], sell: 500, pref: 445, cost: 390 },
-    { name: 'Nandroject 300 (Deca)', keywords: ['nandroject', 'deca 300', 'nandrolone deca', 'deca', 'deka'], sell: 420, pref: 365, cost: 310 },
+    { name: 'Nandroject 300 (Deca)', keywords: ['nandroject', 'deca 300', 'nandrolone deca', 'deca', 'deka', 'decca'], sell: 420, pref: 365, cost: 310 },
     { name: 'Nebidoject 250 (Test U)', keywords: ['nebidoject', 'test undecanoate', 'test u', 'nebido'], sell: 320, pref: 260, cost: 200 },
     { name: 'Primoject 100', keywords: ['primoject 100', 'primo 100', 'primobolan 100'], sell: 590, pref: 530, cost: 470 },
     { name: 'Primoject 200', keywords: ['primoject 200', 'primo 200', 'primobolan 200'], sell: 810, pref: 770, cost: 730 },
@@ -1067,6 +1067,29 @@ async function seedInitialData() {
     .set({ orders });
   } // end Muscle Mecca seed
 
+  // One-time: append week 2 HD Labs orders (remove after confirmed)
+  const hdKey = supplierKey('HD Labs');
+  const hdSnap = await db.collection('users').doc(currentUser.uid)
+    .collection('suppliers').doc(hdKey).get();
+  const existingHd = hdSnap.exists && hdSnap.data().orders ? hdSnap.data().orders : [];
+  if (!existingHd.some(o => o.orderNumber === 'HD-0005')) {
+    const newHdOrders = [
+      makeOrder('HD-0005', '2026-05-04', 'Kate Bester', '+27 72 811 5310',
+        '1 x Anavar 20mg', 1, 470, 330, 140, 'standard', 1,
+        'Sent', '', '1332 The Clubhouse Street, Maraisburg, 1709', '', 'HD Labs'),
+      makeOrder('HD-0006', '2026-05-05', 'Tiaan Kruger', '+27 71 678 8083',
+        '1 x Mastaject 200\n2 x Equiject', 3, 1380, 1070, 310, 'standard', 1,
+        'Sent', '', '5 Wesp rd, Sunward Park, Boksburg, 1459', '', 'HD Labs'),
+      makeOrder('HD-0007', '2026-05-07', 'Leo Kruger', '0826527825',
+        '1 x Retatrutide Vial\n1 x SuperBulk\n1 x Depoject\n1 x Nandroject 300', 4, 3400, 2150, 875, 'standard', 0.7,
+        'Sent', '', '1233 Caley Lane Queenswood', '', 'HD Labs'),
+    ];
+    const merged = existingHd.concat(newHdOrders);
+    ordersCache['HD Labs'] = merged;
+    await db.collection('users').doc(currentUser.uid)
+      .collection('suppliers').doc(hdKey)
+      .set({ orders: merged });
+  }
 }
 
 // ---- Init (Auth-gated) ----
