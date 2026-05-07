@@ -1072,7 +1072,7 @@ async function seedInitialData() {
   const hdSnap = await db.collection('users').doc(currentUser.uid)
     .collection('suppliers').doc(hdKey).get();
 
-  if (!hdSnap.exists) {
+  if (!hdSnap.exists || !hdSnap.data().orders || hdSnap.data().orders.length === 0) {
     const hdOrders = [
       makeOrder('HD-0001', '2026-04-28', 'Donovan', '0711734576',
         '2 x Testaject\n1 x Tamoxifen\n2 x Turanabol', 5, 1650, 880, 770, 'standard', 1,
