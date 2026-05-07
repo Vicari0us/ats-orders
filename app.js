@@ -20,7 +20,7 @@ const db = firebase.firestore();
 
 // ---- App State ----
 const SUPPLIERS = ['Muscle Mecca', 'HD Labs', 'Elev8'];
-const COURIER_FEES = { 'Muscle Mecca': 150, 'HD Labs': 110, 'Elev8': 150 };
+const COURIER_FEES = { 'Muscle Mecca': 150, 'HD Labs': 120, 'Elev8': 150 };
 function getCourierFee(supplier) { return COURIER_FEES[supplier || currentSupplier] || 150; }
 const COURIER_FEE = 150; // legacy reference, use getCourierFee() for supplier-specific
 let currentSupplier = SUPPLIERS[0];
