@@ -1067,31 +1067,26 @@ async function seedInitialData() {
     .set({ orders });
   } // end Muscle Mecca seed
 
-  // Seed HD Labs orders
+  // One-time seed: HD Labs orders (force-write, remove after confirmed)
   const hdKey = supplierKey('HD Labs');
-  const hdSnap = await db.collection('users').doc(currentUser.uid)
-    .collection('suppliers').doc(hdKey).get();
-
-  if (!hdSnap.exists || !hdSnap.data().orders || hdSnap.data().orders.length === 0) {
-    const hdOrders = [
-      makeOrder('HD-0001', '2026-04-28', 'Donovan', '0711734576',
-        '2 x Testaject\n1 x Tamoxifen\n2 x Turanabol', 5, 1650, 880, 770, 'standard', 1,
-        'Sent', '', '1 Atlantic drive, Atlantic Hills Business Park, Unit G, Cape Farms, Cape Town', '', 'HD Labs'),
-      makeOrder('HD-0002', '2026-04-28', 'Leo Kruger', '0826527825',
-        '3 x Anavar 20mg\n3 x Testaject', 6, 2340, 1350, 693, 'standard', 0.7,
-        'Sent', '', '1233 Caley Lane Queenswood', '', 'HD Labs'),
-      makeOrder('HD-0003', '2026-04-29', 'Leo Kruger', '0826527825',
-        '2 x Testaject\n2 x Mastaject 200', 4, 1900, 1300, 420, 'standard', 0.7,
-        'Sent', '', '1233 Caley Lane Queenswood', '', 'HD Labs'),
-      makeOrder('HD-0004', '2026-04-29', 'William', '27737220059',
-        '2 x Dianabol 10mg\n12 x Sustanon Amp\n1 x Nandroject 300', 15, 0, 0, 0, 'standard', 1,
-        'Cancelled', '', '13 Ray street, Annlin, 0066', 'Cancelled - client backed out after no Sust Amps available', 'HD Labs'),
-    ];
-    ordersCache['HD Labs'] = hdOrders;
-    await db.collection('users').doc(currentUser.uid)
-      .collection('suppliers').doc(hdKey)
-      .set({ orders: hdOrders });
-  }
+  const hdOrders = [
+    makeOrder('HD-0001', '2026-04-28', 'Donovan', '0711734576',
+      '2 x Testaject\n1 x Tamoxifen\n2 x Turanabol', 5, 1650, 880, 770, 'standard', 1,
+      'Sent', '', '1 Atlantic drive, Atlantic Hills Business Park, Unit G, Cape Farms, Cape Town', '', 'HD Labs'),
+    makeOrder('HD-0002', '2026-04-28', 'Leo Kruger', '0826527825',
+      '3 x Anavar 20mg\n3 x Testaject', 6, 2340, 1350, 693, 'standard', 0.7,
+      'Sent', '', '1233 Caley Lane Queenswood', '', 'HD Labs'),
+    makeOrder('HD-0003', '2026-04-29', 'Leo Kruger', '0826527825',
+      '2 x Testaject\n2 x Mastaject 200', 4, 1900, 1300, 420, 'standard', 0.7,
+      'Sent', '', '1233 Caley Lane Queenswood', '', 'HD Labs'),
+    makeOrder('HD-0004', '2026-04-29', 'William', '27737220059',
+      '2 x Dianabol 10mg\n12 x Sustanon Amp\n1 x Nandroject 300', 15, 0, 0, 0, 'standard', 1,
+      'Cancelled', '', '13 Ray street, Annlin, 0066', 'Cancelled - client backed out after no Sust Amps available', 'HD Labs'),
+  ];
+  ordersCache['HD Labs'] = hdOrders;
+  await db.collection('users').doc(currentUser.uid)
+    .collection('suppliers').doc(hdKey)
+    .set({ orders: hdOrders });
 }
 
 // ---- Init (Auth-gated) ----
