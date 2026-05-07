@@ -1,13 +1,32 @@
 // ============================================================
 // ATS Orders - Order Tracking System
+// Firebase + Google Auth + Firestore
 // ============================================================
 
+// ---- Firebase Config ----
+// TODO: Replace with your Firebase project config from console.firebase.google.com
+const firebaseConfig = {
+  apiKey: "AIzaSyCi3ijJj0s1WL8sIctr0LD8kDog1DZwkIo",
+  authDomain: "ats-orders.firebaseapp.com",
+  projectId: "ats-orders",
+  storageBucket: "ats-orders.firebasestorage.app",
+  messagingSenderId: "681879534831",
+  appId: "1:681879534831:web:c6e0aea8036b156096ef1a"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// ---- App State ----
 const SUPPLIERS = ['Muscle Mecca', 'HD Labs', 'Elev8'];
 const COURIER_FEE = 150;
 let currentSupplier = SUPPLIERS[0];
-let currentWeek = null;   // null = "All Weeks", otherwise ISO date string of week-ending Sunday
+let currentWeek = null;
 let editingOrderId = null;
 let parsedOrders = [];
+let currentUser = null;
+let ordersCache = {};
 
 // ---- Price List (sell = standard retail, pref = preferential, cost = cost price) ----
 
@@ -37,7 +56,7 @@ const PRICE_LISTS = {
 const CLIENT_RULES = {
   'Muscle Mecca': {
     preferential: ['tiaan kruger', 'matthew de beer'],
-    profitAdjust: { 'leo kruger': 0.7 },  // Leo keeps 70% of profit
+    profitAdjust: { 'leo kruger': 0.7 },
     priceOverrides: {
       'warren van niekerk': [
         { keywords: ['reta pen', 'reta pens', 'ipharma reta', '30mg pen', '30mg pens'], sell: 2200 }
@@ -122,19 +141,76 @@ function calcOrderPricing(itemsText, clientName, supplier) {
   return { retail, cost, profit, tier: rule.tier, profitMult: rule.profitMult };
 }
 
-// ---- Data helpers ----
+// ---- Data Layer (Firestore-backed with in-memory cache) ----
 
-function storageKey(supplier) {
-  return 'ats_orders_' + supplier.replace(/\s+/g, '_').toLowerCase();
+function supplierKey(supplier) {
+  return supplier.replace(/\s+/g, '_').toLowerCase();
 }
 
 function getOrders(supplier) {
-  return JSON.parse(localStorage.getItem(storageKey(supplier)) || '[]');
+  return ordersCache[supplier] || [];
 }
 
 function saveOrders(supplier, orders) {
-  localStorage.setItem(storageKey(supplier), JSON.stringify(orders));
+  ordersCache[supplier] = orders;
+  if (!currentUser) return;
+  const key = supplierKey(supplier);
+  db.collection('users').doc(currentUser.uid)
+    .collection('suppliers').doc(key)
+    .set({ orders })
+    .catch(err => console.error('Firestore write error:', err));
 }
+
+async function loadOrders(supplier) {
+  if (!currentUser) return;
+  const key = supplierKey(supplier);
+  const snap = await db.collection('users').doc(currentUser.uid)
+    .collection('suppliers').doc(key).get();
+  ordersCache[supplier] = snap.exists ? snap.data().orders : [];
+}
+
+// ---- Auth Functions ----
+
+function signInWithGoogle() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(provider).catch(err => {
+    console.error('Sign-in error:', err);
+    alert('Sign-in failed: ' + err.message);
+  });
+}
+
+function signOutUser() {
+  auth.signOut();
+}
+
+function showLoginScreen() {
+  document.getElementById('loginScreen').classList.remove('hidden');
+  document.getElementById('userInfo').style.display = 'none';
+}
+
+function hideLoginScreen() {
+  document.getElementById('loginScreen').classList.add('hidden');
+}
+
+function showUserInfo(user) {
+  const userInfo = document.getElementById('userInfo');
+  const avatar = document.getElementById('userAvatar');
+  const email = document.getElementById('userEmail');
+  avatar.src = user.photoURL || '';
+  avatar.style.display = user.photoURL ? 'block' : 'none';
+  email.textContent = user.email || '';
+  userInfo.style.display = 'flex';
+}
+
+function showLoading() {
+  document.getElementById('loadingOverlay').style.display = 'flex';
+}
+
+function hideLoading() {
+  document.getElementById('loadingOverlay').style.display = 'none';
+}
+
+// ---- Helper functions ----
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -166,7 +242,7 @@ function formatRand(val) {
 
 function getWeekEnding(dateStr) {
   const d = new Date(dateStr);
-  const day = d.getDay(); // 0=Sun, 1=Mon...6=Sat
+  const day = d.getDay();
   const offset = day === 0 ? 0 : 7 - day;
   d.setDate(d.getDate() + offset);
   return d.toISOString().split('T')[0];
@@ -191,7 +267,6 @@ function renderWeekTabs() {
     return;
   }
 
-  // If currentWeek is not in available weeks, pick the most recent
   if (currentWeek !== null && !weeks.includes(currentWeek)) {
     currentWeek = weeks[weeks.length - 1];
   }
@@ -199,21 +274,15 @@ function renderWeekTabs() {
   const currentIdx = currentWeek ? weeks.indexOf(currentWeek) : -1;
 
   let html = '';
-
-  // Prev arrow
   html += `<button class="week-nav" ${currentIdx <= 0 || currentWeek === null ? 'disabled style="opacity:0.3;cursor:default;"' : ''} onclick="switchWeek('${currentIdx > 0 ? weeks[currentIdx - 1] : ''}')"><i class="fas fa-chevron-left"></i></button>`;
-
-  // All Weeks button
   html += `<button class="${currentWeek === null ? 'active' : ''}" onclick="switchWeek(null)"><i class="fas fa-layer-group" style="margin-right:5px;font-size:0.7rem;"></i>All Weeks</button>`;
 
-  // Week buttons
   weeks.forEach(w => {
     const d = new Date(w + 'T00:00:00');
     const label = 'Week ending ' + d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
     html += `<button class="${currentWeek === w ? 'active' : ''}" onclick="switchWeek('${w}')"><i class="fas fa-calendar-week" style="margin-right:5px;font-size:0.7rem;opacity:0.6;"></i>${label}</button>`;
   });
 
-  // Next arrow
   html += `<button class="week-nav" ${currentIdx >= weeks.length - 1 || currentWeek === null ? 'disabled style="opacity:0.3;cursor:default;"' : ''} onclick="switchWeek('${currentIdx < weeks.length - 1 && currentIdx >= 0 ? weeks[currentIdx + 1] : ''}')"><i class="fas fa-chevron-right"></i></button>`;
 
   container.innerHTML = html;
@@ -244,12 +313,21 @@ function togglePayment(orderId) {
 
 // ---- Supplier tabs ----
 
-function switchSupplier(supplier) {
+async function switchSupplier(supplier) {
   currentSupplier = supplier;
   document.querySelectorAll('.supplier-tabs button').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.supplier === supplier);
   });
   currentWeek = null;
+
+  showLoading();
+  try {
+    await loadOrders(supplier);
+  } catch (err) {
+    console.error('Error loading orders:', err);
+  }
+  hideLoading();
+
   const weeks = getAvailableWeeks(supplier);
   if (weeks.length > 0) currentWeek = weeks[weeks.length - 1];
   renderWeekTabs();
@@ -432,7 +510,6 @@ function saveOrder() {
     order[f] = el ? el.value.trim() : '';
   });
 
-  // Store pricing metadata
   const rule = getClientRule(order.clientName);
   order.priceTier = rule.tier;
   order.profitMult = String(rule.profitMult);
@@ -514,7 +591,6 @@ function autoPrice() {
     }
   }
 
-  // Courier fee
   breakdownHtml += `<tr><td style="padding:4px;">Courier Fee</td><td style="text-align:right;padding:4px;">${formatRand(COURIER_FEE)}</td><td style="text-align:right;padding:4px;">${formatRand(COURIER_FEE)}</td><td style="text-align:right;padding:4px;">R0.00</td></tr>`;
   totalRetail += COURIER_FEE;
   totalCost += COURIER_FEE;
@@ -798,13 +874,31 @@ function exportCSV() {
   URL.revokeObjectURL(url);
 }
 
-// ---- Seed data ----
+// ---- Seed initial data (one-time, to Firestore) ----
 
-function seedInitialData() {
-  const version = localStorage.getItem('ats_data_version') || '0';
-  if (version >= '5') return;
+function makeOrder(num, date, client, phone, items, qty, retail, cost, profit, tier, profitMult, status, tracking, address, notes) {
+  return {
+    id: generateId(), orderNumber: num, orderDate: date,
+    clientName: client, clientPhone: phone, items: items,
+    quantity: String(qty), totalCost: retail.toFixed(2),
+    totalCostPrice: cost.toFixed(2), profit: profit.toFixed(2),
+    courierFee: COURIER_FEE.toFixed(2), priceTier: tier, profitMult: String(profitMult),
+    paymentStatus: 'Pending', orderStatus: status,
+    trackingNumber: tracking, deliveryAddress: address,
+    deliveryDate: '', notes: notes
+  };
+}
 
-  // Matthew de Beer = preferential rate, Leo Kruger = 70% profit
+async function seedInitialData() {
+  if (!currentUser) return;
+
+  // Check if Muscle Mecca data already exists in Firestore
+  const key = supplierKey('Muscle Mecca');
+  const snap = await db.collection('users').doc(currentUser.uid)
+    .collection('suppliers').doc(key).get();
+
+  if (snap.exists) return; // Already seeded
+
   const orders = [
     makeOrder('MM-0001', '2026-05-04', 'Arnav', '+27 78 581 8788',
       '2 x iPharma Reta Pens', 2, 5350, 3590, 1760, 'standard', 1,
@@ -850,28 +944,17 @@ function seedInitialData() {
       'Sent', '', 'Plot 35C, Garsfontein Road, Tierpoort', ''),
   ];
 
-  localStorage.setItem(storageKey('Muscle Mecca'), JSON.stringify(orders));
-  localStorage.setItem('ats_data_version', '5');
+  // Save to Firestore and cache
+  ordersCache['Muscle Mecca'] = orders;
+  await db.collection('users').doc(currentUser.uid)
+    .collection('suppliers').doc(key)
+    .set({ orders });
 }
 
-function makeOrder(num, date, client, phone, items, qty, retail, cost, profit, tier, profitMult, status, tracking, address, notes) {
-  return {
-    id: generateId(), orderNumber: num, orderDate: date,
-    clientName: client, clientPhone: phone, items: items,
-    quantity: String(qty), totalCost: retail.toFixed(2),
-    totalCostPrice: cost.toFixed(2), profit: profit.toFixed(2),
-    courierFee: COURIER_FEE.toFixed(2), priceTier: tier, profitMult: String(profitMult),
-    paymentStatus: 'Pending', orderStatus: status,
-    trackingNumber: tracking, deliveryAddress: address,
-    deliveryDate: '', notes: notes
-  };
-}
-
-// ---- Init ----
+// ---- Init (Auth-gated) ----
 
 document.addEventListener('DOMContentLoaded', () => {
-  seedInitialData();
-
+  // Set up supplier tabs (UI only, data loads after auth)
   const tabsContainer = document.getElementById('supplierTabs');
   SUPPLIERS.forEach(supplier => {
     const btn = document.createElement('button');
@@ -881,11 +964,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (supplier === currentSupplier) btn.classList.add('active');
     tabsContainer.appendChild(btn);
   });
-
-  // Initialize week tabs - auto-select most recent week
-  const weeks = getAvailableWeeks(currentSupplier);
-  if (weeks.length > 0) currentWeek = weeks[weeks.length - 1];
-  renderWeekTabs();
 
   document.getElementById('searchBox').addEventListener('input', renderOrders);
 
@@ -899,6 +977,33 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') { document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active')); editingOrderId = null; }
   });
 
-  renderOrders();
-  renderSummary();
+  // Auth state listener - gates the entire app
+  auth.onAuthStateChanged(async (user) => {
+    if (user) {
+      currentUser = user;
+      hideLoginScreen();
+      showUserInfo(user);
+      showLoading();
+
+      try {
+        await seedInitialData();
+        await loadOrders(currentSupplier);
+      } catch (err) {
+        console.error('Error loading data:', err);
+      }
+
+      hideLoading();
+
+      const weeks = getAvailableWeeks(currentSupplier);
+      if (weeks.length > 0) currentWeek = weeks[weeks.length - 1];
+      renderWeekTabs();
+      renderOrders();
+      renderSummary();
+    } else {
+      currentUser = null;
+      ordersCache = {};
+      showLoginScreen();
+      document.getElementById('ordersBody').innerHTML = '';
+    }
+  });
 });
