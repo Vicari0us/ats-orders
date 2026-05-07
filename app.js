@@ -20,7 +20,7 @@ const db = firebase.firestore();
 
 // ---- App State ----
 const SUPPLIERS = ['Muscle Mecca', 'HD Labs', 'Elev8'];
-const COURIER_FEES = { 'Muscle Mecca': 150, 'HD Labs': 120, 'Elev8': 150 };
+const COURIER_FEES = { 'Muscle Mecca': 150, 'HD Labs': 120, 'Elev8': 100 };
 function getCourierFee(supplier) { return COURIER_FEES[supplier || currentSupplier] || 150; }
 const COURIER_FEE = 150; // legacy reference, use getCourierFee() for supplier-specific
 let currentSupplier = SUPPLIERS[0];
@@ -158,6 +158,30 @@ const PRICE_LISTS = {
     { name: 'Tirzepatide Pen 30mg', keywords: ['tirzepatide pen', 'tirz pen', 'tirzep pen'], sell: 3100, pref: 2700, cost: 2300 },
     { name: 'Retatrutide Pen 32mg', keywords: ['retatrutide pen', 'reta pen'], sell: 3800, pref: 3500, cost: 3200 },
     { name: 'TirSema Pen 44mg', keywords: ['tirsema', 'tir sema', 'tirsema pen'], sell: 2200, pref: 1900, cost: 1600 },
+  ],
+  'Elev8': [
+    { name: 'Semaglutide 5mg', keywords: ['semaglutide', 'sema'], sell: 700, pref: 550, cost: 400 },
+    { name: 'Tirzepatide 5mg', keywords: ['tirzepatide 5', 'tirz 5', 'tirzep 5'], sell: 750, pref: 575, cost: 400 },
+    { name: 'Tirzepatide 30mg', keywords: ['tirzepatide 30', 'tirz 30', 'tirzep 30'], sell: 1800, pref: 1425, cost: 1050 },
+    { name: 'Retatrutide 10mg', keywords: ['retatrutide 10', 'reta 10'], sell: 1150, pref: 900, cost: 650 },
+    { name: 'Retatrutide 20mg', keywords: ['retatrutide 20', 'reta 20'], sell: 1800, pref: 1375, cost: 950 },
+    { name: 'Retatrutide 30mg', keywords: ['retatrutide 30', 'reta 30'], sell: 2000, pref: 1700, cost: 1400 },
+    { name: 'Reta PEN 20mg', keywords: ['reta pen 20'], sell: 2200, pref: 1800, cost: 1400 },
+    { name: 'Reta PEN 60mg', keywords: ['reta pen 60'], sell: 4300, pref: 3650, cost: 3000 },
+    { name: 'MOTS-C 40mg', keywords: ['mots-c', 'mots c', 'motsc'], sell: 1400, pref: 1175, cost: 950 },
+    { name: 'GLOW 70mg (TB500/BPC/GHK-CU)', keywords: ['glow', 'tb500 bpc ghk'], sell: 1100, pref: 875, cost: 650 },
+    { name: 'NAD 500mg', keywords: ['nad'], sell: 1000, pref: 800, cost: 600 },
+    { name: 'Wolverine Stack 20mg', keywords: ['wolverine', 'wolverine stack'], sell: 1000, pref: 875, cost: 750 },
+    { name: 'BPC-157 5mg', keywords: ['bpc-157', 'bpc 157', 'bpc157'], sell: 350, pref: 280, cost: 210 },
+    { name: 'TB500 5mg', keywords: ['tb500', 'tb 500'], sell: 380, pref: 315, cost: 250 },
+    { name: 'GHK-CU 100mg', keywords: ['ghk-cu', 'ghk cu', 'copper peptide'], sell: 750, pref: 615, cost: 480 },
+    { name: 'GH 100iu Kit', keywords: ['gh 100', 'growth hormone', 'hgh'], sell: 2250, pref: 1975, cost: 1700 },
+    { name: 'SLU-PP-332 5mg', keywords: ['slu-pp-332', 'slu pp 332', 'slupp332'], sell: 800, pref: 700, cost: 600 },
+    { name: '5-Amino-1MQ 5mg', keywords: ['5-amino', '5amino', '5-amino-1mq', '5amino-1mq'], sell: 450, pref: 365, cost: 280 },
+    { name: 'SS31 10mg', keywords: ['ss31', 'ss 31'], sell: 850, pref: 735, cost: 620 },
+    { name: 'PEG MGF 2mg', keywords: ['peg mgf', 'pegmgf'], sell: 750, pref: 575, cost: 400 },
+    { name: 'AOD-9604 5mg', keywords: ['aod-9604', 'aod 9604', 'aod9604'], sell: 750, pref: 600, cost: 450 },
+    { name: 'BAM-15 Tabs (30 tabs)', keywords: ['bam-15', 'bam 15', 'bam15'], sell: 1250, pref: 1050, cost: 850 },
   ]
 };
 
