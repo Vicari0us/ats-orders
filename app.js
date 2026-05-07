@@ -1,0 +1,904 @@
+// ============================================================
+// ATS Orders - Order Tracking System
+// ============================================================
+
+const SUPPLIERS = ['Muscle Mecca', 'HD Labs', 'Elev8'];
+const COURIER_FEE = 150;
+let currentSupplier = SUPPLIERS[0];
+let currentWeek = null;   // null = "All Weeks", otherwise ISO date string of week-ending Sunday
+let editingOrderId = null;
+let parsedOrders = [];
+
+// ---- Price List (sell = standard retail, pref = preferential, cost = cost price) ----
+
+const PRICE_LISTS = {
+  'Muscle Mecca': [
+    { name: 'iPharma Retatrutide Pen', keywords: ['ipharma reta', 'reta pen', 'reta pens', '30mg pens', '30mg pen'], sell: 2600, pref: 2160, cost: 1720 },
+    { name: 'iPharma Tirzepatide Pen', keywords: ['tirzep pen ipharma', 'ipharma tirzep', 'tirzepatide pen ipharma'], sell: 2400, pref: 1990, cost: 1550 },
+    { name: 'iPharma L-Carnitine 50ml', keywords: ['ipharma l-carn', 'l-carnitine'], sell: 450, pref: 380, cost: 310 },
+    { name: 'Vmed Test Enanthate', keywords: ['vmed test e'], sell: 470, pref: 415, cost: 360 },
+    { name: 'Vmed NPP 100', keywords: ['vmed npp'], sell: 480, pref: 420, cost: 360 },
+    { name: 'Vmed Nolvadex (Tamoxifen)', keywords: ['tamoxifen vmed', 'vmed nolva', 'vmed tamox'], sell: 270, pref: 225, cost: 180 },
+    { name: 'UPA Test Enanthate', keywords: ['upa test e'], sell: 440, pref: 383, cost: 325 },
+    { name: 'Glucophage 1000mg', keywords: ['glucophage'], sell: 320, pref: 300, cost: 280 },
+    { name: 'Tesar 80mg (Telmisartan)', keywords: ['tesar'], sell: 350, pref: 290, cost: 280 },
+    { name: 'NOVA Test Cypionate', keywords: ['nova test c', 'test cypionate'], sell: 420, pref: 355, cost: 290 },
+    { name: 'NOVA Tren Acetate', keywords: ['tren acetate', 'tren ace'], sell: 550, pref: 500, cost: 450 },
+    { name: 'NOVA Nolvadex', keywords: ['nova nolva', 'nolvadex'], sell: 350, pref: 310, cost: 270 },
+    { name: 'NOVA Arimidex', keywords: ['arimidex', 'arimadex'], sell: 380, pref: 355, cost: 330 },
+    { name: 'NOVA Cialis Daily', keywords: ['cialis daily'], sell: 250, pref: 198, cost: 145 },
+    { name: 'Keifei Test E 250', keywords: ['keifei test e'], sell: 600, pref: 550, cost: 500 },
+    { name: 'MyLife Tirzepatide Pen', keywords: ['mylife tirzep', 'mylife tirz'], sell: 2250, pref: 1900, cost: 1550 },
+  ]
+};
+
+// ---- Client pricing rules ----
+
+const CLIENT_RULES = {
+  'Muscle Mecca': {
+    preferential: ['tiaan kruger', 'matthew de beer'],
+    profitAdjust: { 'leo kruger': 0.7 },  // Leo keeps 70% of profit
+    priceOverrides: {
+      'warren van niekerk': [
+        { keywords: ['reta pen', 'reta pens', 'ipharma reta', '30mg pen', '30mg pens'], sell: 2200 }
+      ]
+    }
+  }
+};
+
+function getClientRule(clientName, supplier) {
+  const rules = CLIENT_RULES[supplier || currentSupplier];
+  if (!rules || !clientName) return { tier: 'standard', profitMult: 1, overrides: [] };
+
+  const name = clientName.toLowerCase().trim();
+  const isPref = rules.preferential.some(p => name === p);
+  const profitMult = rules.profitAdjust[name] || 1;
+  const overrides = (rules.priceOverrides && rules.priceOverrides[name]) || [];
+
+  return { tier: isPref ? 'preferential' : 'standard', profitMult, overrides };
+}
+
+function getOverridePrice(itemLine, overrides) {
+  if (!overrides || overrides.length === 0) return null;
+  const product = itemLine.replace(/^\d+\s*[x×]\s*/i, '').trim().toLowerCase();
+  for (const ov of overrides) {
+    for (const kw of ov.keywords) {
+      if (product.includes(kw) || kw.split(' ').every(w => product.includes(w))) {
+        return ov.sell;
+      }
+    }
+  }
+  return null;
+}
+
+// ---- Price lookup ----
+
+function lookupItemPrice(itemLine, supplier) {
+  const priceList = PRICE_LISTS[supplier];
+  if (!priceList) return null;
+
+  const product = itemLine.replace(/^\d+\s*[x×]\s*/i, '').trim().toLowerCase();
+  if (!product || /^all\s/i.test(product)) return null;
+
+  let bestMatch = null;
+  let bestScore = 0;
+
+  for (const entry of priceList) {
+    for (const kw of entry.keywords) {
+      if (product.includes(kw) || kw.split(' ').every(w => product.includes(w))) {
+        const score = kw.length;
+        if (score > bestScore) { bestScore = score; bestMatch = entry; }
+      }
+    }
+  }
+  return bestMatch;
+}
+
+function calcOrderPricing(itemsText, clientName, supplier) {
+  if (!itemsText) return { retail: 0, cost: 0, profit: 0 };
+  const sup = supplier || currentSupplier;
+  const rule = getClientRule(clientName, sup);
+  const lines = itemsText.split('\n').map(l => l.trim()).filter(Boolean);
+  let retail = 0;
+  let cost = 0;
+
+  for (const line of lines) {
+    const qtyMatch = line.match(/^(\d+)\s*[x×]\s*/i);
+    const qty = qtyMatch ? parseInt(qtyMatch[1]) : 0;
+    const match = lookupItemPrice(line, sup);
+    if (match && qty) {
+      const override = getOverridePrice(line, rule.overrides);
+      const unitSell = override !== null ? override : (rule.tier === 'preferential' ? match.pref : match.sell);
+      retail += qty * unitSell;
+      cost += qty * match.cost;
+    }
+  }
+
+  retail += COURIER_FEE;
+  cost += COURIER_FEE;
+  let profit = retail - cost;
+  profit = Math.round(profit * rule.profitMult);
+
+  return { retail, cost, profit, tier: rule.tier, profitMult: rule.profitMult };
+}
+
+// ---- Data helpers ----
+
+function storageKey(supplier) {
+  return 'ats_orders_' + supplier.replace(/\s+/g, '_').toLowerCase();
+}
+
+function getOrders(supplier) {
+  return JSON.parse(localStorage.getItem(storageKey(supplier)) || '[]');
+}
+
+function saveOrders(supplier, orders) {
+  localStorage.setItem(storageKey(supplier), JSON.stringify(orders));
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function generateOrderNumber() {
+  const prefix = currentSupplier.split(' ').map(w => w[0]).join('').toUpperCase();
+  const orders = getOrders(currentSupplier);
+  let max = 0;
+  orders.forEach(o => {
+    const m = (o.orderNumber || '').match(/(\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1]));
+  });
+  return prefix + '-' + String(max + 1).padStart(4, '0');
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-ZA');
+}
+
+function formatRand(val) {
+  const n = parseFloat(val) || 0;
+  return 'R' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// ---- Week helpers ----
+
+function getWeekEnding(dateStr) {
+  const d = new Date(dateStr);
+  const day = d.getDay(); // 0=Sun, 1=Mon...6=Sat
+  const offset = day === 0 ? 0 : 7 - day;
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().split('T')[0];
+}
+
+function getAvailableWeeks(supplier) {
+  const orders = getOrders(supplier);
+  const weekSet = new Set();
+  orders.forEach(o => {
+    if (o.orderDate) weekSet.add(getWeekEnding(o.orderDate));
+  });
+  return Array.from(weekSet).sort();
+}
+
+function renderWeekTabs() {
+  const container = document.getElementById('weekTabs');
+  const weeks = getAvailableWeeks(currentSupplier);
+
+  if (weeks.length === 0) {
+    container.innerHTML = '';
+    currentWeek = null;
+    return;
+  }
+
+  // If currentWeek is not in available weeks, pick the most recent
+  if (currentWeek !== null && !weeks.includes(currentWeek)) {
+    currentWeek = weeks[weeks.length - 1];
+  }
+
+  const currentIdx = currentWeek ? weeks.indexOf(currentWeek) : -1;
+
+  let html = '';
+
+  // Prev arrow
+  html += `<button class="week-nav" ${currentIdx <= 0 || currentWeek === null ? 'disabled style="opacity:0.3;cursor:default;"' : ''} onclick="switchWeek('${currentIdx > 0 ? weeks[currentIdx - 1] : ''}')"><i class="fas fa-chevron-left"></i></button>`;
+
+  // All Weeks button
+  html += `<button class="${currentWeek === null ? 'active' : ''}" onclick="switchWeek(null)"><i class="fas fa-layer-group" style="margin-right:5px;font-size:0.7rem;"></i>All Weeks</button>`;
+
+  // Week buttons
+  weeks.forEach(w => {
+    const d = new Date(w + 'T00:00:00');
+    const label = 'Week ending ' + d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    html += `<button class="${currentWeek === w ? 'active' : ''}" onclick="switchWeek('${w}')"><i class="fas fa-calendar-week" style="margin-right:5px;font-size:0.7rem;opacity:0.6;"></i>${label}</button>`;
+  });
+
+  // Next arrow
+  html += `<button class="week-nav" ${currentIdx >= weeks.length - 1 || currentWeek === null ? 'disabled style="opacity:0.3;cursor:default;"' : ''} onclick="switchWeek('${currentIdx < weeks.length - 1 && currentIdx >= 0 ? weeks[currentIdx + 1] : ''}')"><i class="fas fa-chevron-right"></i></button>`;
+
+  container.innerHTML = html;
+}
+
+function switchWeek(weekEnd) {
+  currentWeek = weekEnd || null;
+  renderWeekTabs();
+  renderOrders();
+  renderSummary();
+}
+
+// ---- Payment toggle ----
+
+function togglePayment(orderId) {
+  const orders = getOrders(currentSupplier);
+  const order = orders.find(o => o.id === orderId);
+  if (!order) return;
+
+  const cycle = ['Pending', 'Paid', 'Partial'];
+  const idx = cycle.indexOf(order.paymentStatus || 'Pending');
+  order.paymentStatus = cycle[(idx + 1) % cycle.length];
+
+  saveOrders(currentSupplier, orders);
+  renderOrders();
+  renderSummary();
+}
+
+// ---- Supplier tabs ----
+
+function switchSupplier(supplier) {
+  currentSupplier = supplier;
+  document.querySelectorAll('.supplier-tabs button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.supplier === supplier);
+  });
+  currentWeek = null;
+  const weeks = getAvailableWeeks(supplier);
+  if (weeks.length > 0) currentWeek = weeks[weeks.length - 1];
+  renderWeekTabs();
+  renderOrders();
+  renderSummary();
+}
+
+// ---- Summary cards ----
+
+function renderSummary() {
+  let orders = getOrders(currentSupplier);
+  if (currentWeek) {
+    orders = orders.filter(o => o.orderDate && getWeekEnding(o.orderDate) === currentWeek);
+  }
+  const totalOrders = orders.length;
+  const totalRevenue = orders.reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
+  const totalCost = orders.reduce((s, o) => s + (parseFloat(o.totalCostPrice) || 0), 0);
+  const totalProfit = orders.reduce((s, o) => s + (parseFloat(o.profit) || 0), 0);
+  const activeOrders = orders.filter(o => !['Delivered', 'Cancelled'].includes(o.orderStatus)).length;
+
+  const collected = orders.filter(o => o.paymentStatus === 'Paid').reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
+  const outstanding = orders.filter(o => o.paymentStatus !== 'Paid').reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
+  const collectedPct = totalRevenue > 0 ? Math.round((collected / totalRevenue) * 100) : 0;
+
+  document.getElementById('totalOrders').textContent = totalOrders;
+  document.getElementById('totalRevenue').textContent = formatRand(totalRevenue);
+  document.getElementById('totalCostPrice').textContent = formatRand(totalCost);
+  document.getElementById('totalProfit').textContent = formatRand(totalProfit);
+  document.getElementById('totalCollected').textContent = formatRand(collected);
+  document.getElementById('collectedPct').textContent = collectedPct + '% collected';
+  document.getElementById('totalOutstanding').textContent = formatRand(outstanding);
+  document.getElementById('activeOrders').textContent = activeOrders;
+}
+
+// ---- Order table ----
+
+function renderOrders() {
+  let orders = getOrders(currentSupplier);
+  if (currentWeek) {
+    orders = orders.filter(o => o.orderDate && getWeekEnding(o.orderDate) === currentWeek);
+  }
+  const search = document.getElementById('searchBox').value.toLowerCase();
+  const tbody = document.getElementById('ordersBody');
+
+  let filtered = orders.filter(o => {
+    return o.clientName.toLowerCase().includes(search) ||
+           o.items.toLowerCase().includes(search) ||
+           (o.orderNumber || '').toLowerCase().includes(search) ||
+           (o.clientPhone || '').includes(search) ||
+           (o.trackingNumber || '').toLowerCase().includes(search);
+  });
+
+  filtered.sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate));
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr><td colspan="11">
+        <div class="empty-state">
+          <p style="font-size:2.5rem; margin-bottom:8px;"><i class="fas fa-inbox" style="opacity:0.3;"></i></p>
+          <p><strong>No orders found</strong></p>
+          <p>Click "New Order" or "Import WhatsApp Chat" to add orders for ${currentSupplier}.</p>
+        </div>
+      </td></tr>`;
+    return;
+  }
+
+  const paymentIcons = { Pending: 'fa-clock', Paid: 'fa-circle-check', Partial: 'fa-circle-half-stroke' };
+  const statusIcons = { New: 'fa-sparkles', Sent: 'fa-paper-plane', Dispatched: 'fa-truck', Delivered: 'fa-circle-check', Cancelled: 'fa-ban' };
+
+  tbody.innerHTML = filtered.map(order => {
+    const profit = parseFloat(order.profit) || 0;
+    const tierBadge = order.priceTier === 'preferential' ? ' <span class="badge badge-pref">PREF</span>' : '';
+    const profitNote = parseFloat(order.profitMult) < 1 ? ' <span class="badge badge-pref">70%</span>' : '';
+    const payIcon = paymentIcons[order.paymentStatus] || paymentIcons.Pending;
+    const statIcon = statusIcons[order.orderStatus] || statusIcons.New;
+    return `
+    <tr>
+      <td><strong style="color:#475569;">${order.orderNumber || '-'}</strong></td>
+      <td>${formatDate(order.orderDate)}</td>
+      <td>
+        <div class="client-info">
+          <div class="client-name">${esc(order.clientName)}${tierBadge}${profitNote}</div>
+          ${order.clientPhone ? '<div class="client-phone"><i class="fas fa-phone" style="font-size:0.65rem;margin-right:3px;"></i>' + esc(order.clientPhone) + '</div>' : ''}
+        </div>
+      </td>
+      <td class="items-cell">${renderItemPrices(order)}</td>
+      <td><strong>${formatRand(order.totalCost)}</strong></td>
+      <td>${formatRand(order.totalCostPrice)}</td>
+      <td class="profit-cell ${profit > 0 ? 'profit-positive' : ''}">${formatRand(profit)}</td>
+      <td><span class="badge badge-${(order.paymentStatus || 'pending').toLowerCase()} badge-clickable" onclick="togglePayment('${order.id}')" title="Click to cycle: Pending / Paid / Partial"><i class="fas ${payIcon}"></i> ${order.paymentStatus || 'Pending'}</span></td>
+      <td><span class="badge badge-${(order.orderStatus || 'new').toLowerCase()}"><i class="fas ${statIcon}"></i> ${order.orderStatus || 'New'}</span></td>
+      <td>${order.trackingNumber ? '<span class="tracking-num"><i class="fas fa-barcode" style="font-size:0.7rem;margin-right:3px;"></i>' + esc(order.trackingNumber) + '</span>' : '<span style="color:#cbd5e1;">—</span>'}</td>
+      <td class="td-actions">
+        <button class="btn btn-secondary btn-sm" onclick="openEditOrder('${order.id}')"><i class="fas fa-pen"></i> Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteOrder('${order.id}')"><i class="fas fa-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function esc(str) {
+  const d = document.createElement('div');
+  d.textContent = str || '';
+  return d.innerHTML;
+}
+
+function renderItemPrices(order) {
+  const lines = (order.items || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const tier = order.priceTier || 'standard';
+  const rule = getClientRule(order.clientName, currentSupplier);
+  let html = '';
+
+  for (const line of lines) {
+    const qtyMatch = line.match(/^(\d+)\s*[x×]\s*/i);
+    const qty = qtyMatch ? parseInt(qtyMatch[1]) : 0;
+    const match = lookupItemPrice(line, currentSupplier);
+
+    if (match && qty) {
+      const override = getOverridePrice(line, rule.overrides);
+      const unit = override !== null ? override : (tier === 'preferential' ? match.pref : match.sell);
+      const lineTotal = qty * unit;
+      const isOverride = override !== null;
+      html += `<div class="item-line"><span>${esc(line)}${isOverride ? ' <span class="badge badge-special">SPECIAL</span>' : ''}</span><span class="item-price">${formatRand(lineTotal)}</span></div>`;
+    } else if (/^ALL\s/i.test(line)) {
+      html += `<div class="item-line"><span class="item-note">${esc(line)}</span></div>`;
+    } else {
+      html += `<div class="item-line"><span>${esc(line)}</span><span class="item-price">-</span></div>`;
+    }
+  }
+
+  html += `<div class="item-line courier-line"><span>Courier</span><span class="item-price">${formatRand(COURIER_FEE)}</span></div>`;
+  return html;
+}
+
+// ---- Order CRUD ----
+
+function openNewOrder() {
+  editingOrderId = null;
+  document.getElementById('modalTitle').textContent = 'New Order - ' + currentSupplier;
+  document.getElementById('orderForm').reset();
+  document.getElementById('orderDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('orderNumber').value = generateOrderNumber();
+  document.getElementById('courierFee').value = '150.00';
+  document.getElementById('priceBreakdown').innerHTML = '';
+  document.getElementById('orderModal').classList.add('active');
+}
+
+function openEditOrder(id) {
+  const order = getOrders(currentSupplier).find(o => o.id === id);
+  if (!order) return;
+
+  editingOrderId = id;
+  document.getElementById('modalTitle').textContent = 'Edit Order - ' + currentSupplier;
+
+  const fields = ['orderNumber', 'orderDate', 'clientName', 'clientPhone', 'items',
+    'quantity', 'totalCost', 'totalCostPrice', 'profit', 'courierFee',
+    'paymentStatus', 'orderStatus', 'trackingNumber', 'deliveryAddress', 'deliveryDate', 'notes'];
+  fields.forEach(f => {
+    const el = document.getElementById(f);
+    if (el) el.value = order[f] || '';
+  });
+
+  document.getElementById('priceBreakdown').innerHTML = '';
+  document.getElementById('orderModal').classList.add('active');
+}
+
+function closeOrderModal() {
+  document.getElementById('orderModal').classList.remove('active');
+  editingOrderId = null;
+}
+
+function saveOrder() {
+  const fields = ['orderNumber', 'orderDate', 'clientName', 'clientPhone', 'items',
+    'quantity', 'totalCost', 'totalCostPrice', 'profit', 'courierFee',
+    'paymentStatus', 'orderStatus', 'trackingNumber', 'deliveryAddress', 'deliveryDate', 'notes'];
+
+  const order = { id: editingOrderId || generateId() };
+  fields.forEach(f => {
+    const el = document.getElementById(f);
+    order[f] = el ? el.value.trim() : '';
+  });
+
+  // Store pricing metadata
+  const rule = getClientRule(order.clientName);
+  order.priceTier = rule.tier;
+  order.profitMult = String(rule.profitMult);
+
+  if (!order.clientName || !order.items || !order.orderDate) {
+    alert('Please fill in at least: Client Name, Items, and Order Date.');
+    return;
+  }
+
+  const orders = getOrders(currentSupplier);
+  if (editingOrderId) {
+    const idx = orders.findIndex(o => o.id === editingOrderId);
+    if (idx !== -1) orders[idx] = order;
+  } else {
+    orders.push(order);
+  }
+
+  saveOrders(currentSupplier, orders);
+  closeOrderModal();
+  renderWeekTabs();
+  renderOrders();
+  renderSummary();
+}
+
+function deleteOrder(id) {
+  if (!confirm('Delete this order?')) return;
+  const orders = getOrders(currentSupplier).filter(o => o.id !== id);
+  saveOrders(currentSupplier, orders);
+  renderWeekTabs();
+  renderOrders();
+  renderSummary();
+}
+
+// ---- Auto-price from items ----
+
+function autoPrice() {
+  const itemsText = document.getElementById('items').value;
+  const clientName = document.getElementById('clientName').value.trim();
+
+  if (!itemsText.trim()) { alert('Enter items first, then click Auto-price.'); return; }
+
+  const rule = getClientRule(clientName);
+  const lines = itemsText.split('\n').map(l => l.trim()).filter(Boolean);
+  let totalRetail = 0;
+  let totalCost = 0;
+  let totalQty = 0;
+  let unmatched = [];
+
+  let breakdownHtml = '<table style="width:100%; font-size:0.8rem; border-collapse:collapse;">';
+  breakdownHtml += '<tr style="border-bottom:1px solid #ddd;"><th style="text-align:left;padding:4px;">Item</th><th style="text-align:right;padding:4px;">Retail</th><th style="text-align:right;padding:4px;">Cost</th><th style="text-align:right;padding:4px;">Profit</th></tr>';
+
+  if (rule.tier === 'preferential') {
+    breakdownHtml = `<div style="margin-bottom:6px;"><span class="badge badge-pref">PREFERENTIAL RATE</span> for ${esc(clientName)}</div>` + breakdownHtml;
+  }
+  if (rule.profitMult < 1) {
+    breakdownHtml = `<div style="margin-bottom:6px;"><span class="badge badge-pref">${Math.round(rule.profitMult * 100)}% PROFIT</span> for ${esc(clientName)}</div>` + breakdownHtml;
+  }
+
+  for (const line of lines) {
+    const qtyMatch = line.match(/^(\d+)\s*[x×]\s*/i);
+    const qty = qtyMatch ? parseInt(qtyMatch[1]) : 0;
+    const match = lookupItemPrice(line, currentSupplier);
+
+    if (match && qty) {
+      const override = getOverridePrice(line, rule.overrides);
+      const unitSell = override !== null ? override : (rule.tier === 'preferential' ? match.pref : match.sell);
+      const lineRetail = qty * unitSell;
+      const lineCost = qty * match.cost;
+      const lineProfit = lineRetail - lineCost;
+      totalRetail += lineRetail;
+      totalCost += lineCost;
+      totalQty += qty;
+      const specialTag = override !== null ? ' <span class="badge badge-special">SPECIAL</span>' : '';
+      breakdownHtml += `<tr><td style="padding:4px;">${qty} x ${esc(match.name)}${specialTag}</td><td style="text-align:right;padding:4px;">${formatRand(lineRetail)}</td><td style="text-align:right;padding:4px;">${formatRand(lineCost)}</td><td style="text-align:right;padding:4px;color:#27ae60;">${formatRand(lineProfit)}</td></tr>`;
+    } else if (!/^all\s/i.test(line) && qty) {
+      unmatched.push(line.replace(/^\d+\s*[x×]\s*/i, '').trim());
+      totalQty += qty;
+      breakdownHtml += `<tr style="color:#e67e22;"><td style="padding:4px;">${esc(line)}</td><td colspan="3" style="text-align:right;padding:4px;"><em>not found</em></td></tr>`;
+    }
+  }
+
+  // Courier fee
+  breakdownHtml += `<tr><td style="padding:4px;">Courier Fee</td><td style="text-align:right;padding:4px;">${formatRand(COURIER_FEE)}</td><td style="text-align:right;padding:4px;">${formatRand(COURIER_FEE)}</td><td style="text-align:right;padding:4px;">R0.00</td></tr>`;
+  totalRetail += COURIER_FEE;
+  totalCost += COURIER_FEE;
+
+  let totalProfit = totalRetail - totalCost;
+
+  if (rule.profitMult < 1) {
+    const fullProfit = totalProfit;
+    totalProfit = Math.round(totalProfit * rule.profitMult);
+    breakdownHtml += `<tr style="border-top:1px solid #ddd;"><td colspan="3" style="padding:4px; color:#888;">Full profit: ${formatRand(fullProfit)} x ${Math.round(rule.profitMult * 100)}%</td><td style="text-align:right;padding:4px;color:#e67e22;font-weight:600;">${formatRand(totalProfit)}</td></tr>`;
+  }
+
+  breakdownHtml += `<tr style="border-top:2px solid #333; font-weight:700;"><td style="padding:4px;">TOTAL</td><td style="text-align:right;padding:4px;">${formatRand(totalRetail)}</td><td style="text-align:right;padding:4px;">${formatRand(totalCost)}</td><td style="text-align:right;padding:4px;color:#27ae60;">${formatRand(totalProfit)}</td></tr>`;
+  breakdownHtml += '</table>';
+
+  document.getElementById('totalCost').value = totalRetail.toFixed(2);
+  document.getElementById('totalCostPrice').value = totalCost.toFixed(2);
+  document.getElementById('profit').value = totalProfit.toFixed(2);
+  document.getElementById('courierFee').value = COURIER_FEE.toFixed(2);
+  if (totalQty > 0) document.getElementById('quantity').value = totalQty;
+
+  document.getElementById('priceBreakdown').innerHTML = breakdownHtml;
+
+  if (unmatched.length > 0) {
+    alert('Could not find prices for: ' + unmatched.join(', ') + '\n\nYou can update the totals manually.');
+  }
+}
+
+// ---- WhatsApp Parser ----
+
+function openImportModal() {
+  document.getElementById('chatInput').value = '';
+  document.getElementById('parsedOrdersContainer').innerHTML = '';
+  document.getElementById('parseStatus').textContent = '';
+  document.getElementById('importModal').classList.add('active');
+}
+
+function closeImportModal() {
+  document.getElementById('importModal').classList.remove('active');
+  parsedOrders = [];
+}
+
+function parseWhatsAppChat() {
+  const text = document.getElementById('chatInput').value.trim();
+  if (!text) { alert('Please paste the WhatsApp chat first.'); return; }
+
+  const msgRegex = /\[(\d{2}:\d{2}), (\d{2}\/\d{2}\/\d{4})\] ([^:]+): /g;
+  let match;
+  const indices = [];
+
+  while ((match = msgRegex.exec(text)) !== null) {
+    indices.push({ start: match.index, time: match[1], date: match[2], sender: match[3].trim(), contentStart: match.index + match[0].length });
+  }
+
+  const messages = indices.map((idx, i) => {
+    const end = i < indices.length - 1 ? indices[i + 1].start : text.length;
+    return { time: idx.time, date: idx.date, sender: idx.sender, content: text.slice(idx.contentStart, end).trim() };
+  });
+
+  if (messages.length === 0) { document.getElementById('parseStatus').textContent = 'Could not find any WhatsApp messages. Check the format.'; return; }
+
+  const senderCounts = {};
+  const itemRegex = /^\d+\s*[x×]\s*.+/im;
+  messages.forEach(m => { if (itemRegex.test(m.content)) senderCounts[m.sender] = (senderCounts[m.sender] || 0) + 1; });
+  const orderSender = Object.entries(senderCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!orderSender) { document.getElementById('parseStatus').textContent = 'No order messages detected in the chat.'; return; }
+
+  const trackingEntries = [];
+  messages.forEach((m, i) => {
+    if (m.sender !== orderSender) {
+      const trackMatch = m.content.match(/\b(RE\d{6,})\b/);
+      if (trackMatch) trackingEntries.push({ tracking: trackMatch[1], msgIndex: i, content: m.content });
+    }
+  });
+
+  const rawOrders = [];
+  messages.forEach((m, i) => {
+    if (m.sender !== orderSender) return;
+    const parsed = parseOrderMessage(m.content);
+    if (parsed) {
+      const dp = m.date.split('/');
+      parsed.orderDate = dp[2] + '-' + dp[1] + '-' + dp[0];
+      parsed.msgIndex = i;
+      const pricing = calcOrderPricing(parsed.items, parsed.clientName, currentSupplier);
+      parsed.retail = pricing.retail;
+      parsed.cost = pricing.cost;
+      parsed.profit = pricing.profit;
+      parsed.tier = pricing.tier;
+      parsed.profitMult = pricing.profitMult;
+      rawOrders.push(parsed);
+    }
+  });
+
+  trackingEntries.forEach(te => {
+    let bestOrder = null;
+    for (let i = rawOrders.length - 1; i >= 0; i--) {
+      if (rawOrders[i].msgIndex < te.msgIndex) {
+        const content = te.content.toLowerCase();
+        const clientMatch = rawOrders[i].clientName && content.includes(rawOrders[i].clientName.toLowerCase());
+        const itemMatch = rawOrders[i].items.split('\n').some(item => {
+          const cleaned = item.replace(/^\d+\s*[x×]\s*/i, '').trim().toLowerCase();
+          return cleaned.length > 3 && content.includes(cleaned);
+        });
+        if (clientMatch || itemMatch) { bestOrder = rawOrders[i]; break; }
+      }
+    }
+    if (!bestOrder) {
+      for (let i = rawOrders.length - 1; i >= 0; i--) {
+        if (rawOrders[i].msgIndex < te.msgIndex && !rawOrders[i].tracking) { bestOrder = rawOrders[i]; break; }
+      }
+    }
+    if (bestOrder) bestOrder.tracking = te.tracking;
+  });
+
+  const existingOrders = getOrders(currentSupplier);
+  rawOrders.forEach(o => {
+    const dbDup = existingOrders.some(ex =>
+      ex.clientName.toLowerCase() === o.clientName.toLowerCase() &&
+      ex.items.replace(/\s+/g, ' ').toLowerCase() === o.items.replace(/\s+/g, ' ').toLowerCase()
+    );
+    const chatDup = rawOrders.some(other =>
+      other !== o && other.clientName.toLowerCase() === o.clientName.toLowerCase() &&
+      other.items.replace(/\s+/g, ' ').toLowerCase() === o.items.replace(/\s+/g, ' ').toLowerCase() &&
+      other.msgIndex < o.msgIndex
+    );
+    o.isDuplicate = dbDup || chatDup;
+    o.dupReason = dbDup ? 'Already in system' : chatDup ? 'Resent in chat' : '';
+  });
+
+  parsedOrders = rawOrders;
+  renderParsedOrders();
+  document.getElementById('parseStatus').textContent =
+    `Found ${rawOrders.length} orders from "${orderSender}" (${rawOrders.filter(o => o.isDuplicate).length} possible duplicates).`;
+}
+
+function parseOrderMessage(content) {
+  const lines = content.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const itemRegex = /^(\d+)\s*[x×]\s*(.+)/i;
+  const noisePatterns = [
+    /^(can i|and this|and tracking|sorry|when did|thanks|hey bro|morning bro|is there|i don't see)/i,
+    /^(alternative contact|carrier calls only)/i,
+    /^RE\d{5,}/
+  ];
+
+  const items = [];
+  const otherLines = [];
+  for (const line of lines) {
+    if (itemRegex.test(line)) items.push(line);
+    else if (/^ALL\s+/i.test(line)) items.push(line);
+    else if (!noisePatterns.some(p => p.test(line))) otherLines.push(line);
+  }
+  if (items.length === 0) return null;
+
+  let clientName = '', phone = '', nameIndex = -1, phoneIndex = -1;
+  for (let i = 0; i < otherLines.length; i++) {
+    const cleaned = otherLines[i].replace(/[\s\-()]/g, '');
+    if (/^\+?\d{9,15}$/.test(cleaned)) { phone = otherLines[i]; phoneIndex = i; break; }
+  }
+
+  const addressWords = /\b(street|straat|road|avenue|drive|lane|park|estate|unit|plot|way|farm)\b/i;
+  for (let i = 0; i < otherLines.length; i++) {
+    if (i === phoneIndex) continue;
+    const line = otherLines[i];
+    if (/^\d{4,5}$/.test(line)) continue;
+    if (/^\d+\s/.test(line) && addressWords.test(line)) continue;
+    if (/[a-zA-Z]/.test(line) && line.length <= 40 && !addressWords.test(line)) { clientName = line; nameIndex = i; break; }
+  }
+  if (!clientName) return null;
+
+  const addressLines = otherLines.filter((_, i) => i !== phoneIndex && i !== nameIndex);
+  const totalQty = items.reduce((sum, item) => { const m = item.match(/^(\d+)/); return sum + (m ? parseInt(m[1]) : 0); }, 0);
+
+  return { items: items.join('\n'), clientName, phone, address: addressLines.join(', '), totalQty, tracking: '' };
+}
+
+function renderParsedOrders() {
+  const container = document.getElementById('parsedOrdersContainer');
+  if (parsedOrders.length === 0) { container.innerHTML = '<p style="color:#999;text-align:center;padding:20px;">No orders detected.</p>'; return; }
+
+  let html = `<div class="parsed-orders"><h3>Parsed Orders for ${currentSupplier}</h3>
+    <table class="parsed-table"><thead><tr>
+      <th><input type="checkbox" id="selectAllParsed" checked onchange="toggleAllParsed(this.checked)"></th>
+      <th>Date</th><th>Client</th><th>Phone</th><th>Items</th><th>Qty</th>
+      <th>Retail</th><th>Cost</th><th>Profit</th><th>Tracking</th><th>Note</th>
+    </tr></thead><tbody>`;
+
+  parsedOrders.forEach((o, i) => {
+    const rowClass = o.isDuplicate ? 'duplicate-row' : '';
+    const tierTag = o.tier === 'preferential' ? ' <span class="badge badge-pref">PREF</span>' : '';
+    const multTag = o.profitMult < 1 ? ` <span class="badge badge-pref">${Math.round(o.profitMult*100)}%</span>` : '';
+    html += `<tr class="${rowClass}">
+      <td><input type="checkbox" class="parsed-cb" data-index="${i}" ${o.isDuplicate ? '' : 'checked'}></td>
+      <td>${formatDate(o.orderDate)}</td>
+      <td><strong>${esc(o.clientName)}</strong>${tierTag}${multTag}</td>
+      <td>${esc(o.phone)}</td>
+      <td class="parsed-items">${esc(o.items)}</td>
+      <td>${o.totalQty}</td>
+      <td><strong>${formatRand(o.retail)}</strong></td>
+      <td>${formatRand(o.cost)}</td>
+      <td class="profit-cell profit-positive">${formatRand(o.profit)}</td>
+      <td>${o.tracking ? '<span class="tracking-num">' + esc(o.tracking) + '</span>' : '-'}</td>
+      <td>${o.isDuplicate ? '<span class="duplicate-tag">' + esc(o.dupReason) + '</span>' : ''}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div>`;
+  container.innerHTML = html;
+}
+
+function toggleAllParsed(checked) { document.querySelectorAll('.parsed-cb').forEach(cb => cb.checked = checked); }
+
+function importSelectedOrders() {
+  const checkboxes = document.querySelectorAll('.parsed-cb:checked');
+  if (checkboxes.length === 0) { alert('No orders selected for import.'); return; }
+
+  const orders = getOrders(currentSupplier);
+  let imported = 0;
+
+  checkboxes.forEach(cb => {
+    const idx = parseInt(cb.dataset.index);
+    const po = parsedOrders[idx];
+    if (!po) return;
+
+    const prefix = currentSupplier.split(' ').map(w => w[0]).join('').toUpperCase();
+    let maxNum = 0;
+    orders.forEach(o => { const m = (o.orderNumber || '').match(/(\d+)$/); if (m) maxNum = Math.max(maxNum, parseInt(m[1])); });
+
+    orders.push({
+      id: generateId(),
+      orderNumber: prefix + '-' + String(maxNum + 1).padStart(4, '0'),
+      orderDate: po.orderDate, clientName: po.clientName, clientPhone: po.phone,
+      items: po.items, quantity: String(po.totalQty),
+      totalCost: po.retail.toFixed(2), totalCostPrice: po.cost.toFixed(2),
+      profit: po.profit.toFixed(2), courierFee: COURIER_FEE.toFixed(2),
+      priceTier: po.tier || 'standard', profitMult: String(po.profitMult || 1),
+      paymentStatus: 'Pending', orderStatus: po.tracking ? 'Dispatched' : 'Sent',
+      trackingNumber: po.tracking || '', deliveryAddress: po.address,
+      deliveryDate: '', notes: ''
+    });
+    imported++;
+  });
+
+  saveOrders(currentSupplier, orders);
+  closeImportModal();
+  renderWeekTabs();
+  renderOrders();
+  renderSummary();
+  alert(`Imported ${imported} orders into ${currentSupplier}.`);
+}
+
+// ---- CSV Export ----
+
+function exportCSV() {
+  const orders = getOrders(currentSupplier);
+  if (orders.length === 0) { alert('No orders to export for ' + currentSupplier); return; }
+
+  const headers = [
+    'Order #', 'Date', 'Client', 'Phone', 'Items', 'Qty', 'Price Tier',
+    'Retail Total', 'Cost Total', 'Courier', 'Profit',
+    'Payment Status', 'Order Status', 'Tracking #',
+    'Delivery Address', 'Delivery Date', 'Notes'
+  ];
+
+  const rows = orders.map(o => [
+    o.orderNumber, o.orderDate, o.clientName, o.clientPhone || '', o.items, o.quantity,
+    o.priceTier || 'standard', o.totalCost, o.totalCostPrice || '', o.courierFee || COURIER_FEE,
+    o.profit || '', o.paymentStatus, o.orderStatus, o.trackingNumber || '',
+    o.deliveryAddress, o.deliveryDate, o.notes
+  ]);
+
+  let csv = '\uFEFF';
+  csv += headers.join(',') + '\n';
+  rows.forEach(row => { csv += row.map(cell => '"' + String(cell || '').replace(/"/g, '""') + '"').join(',') + '\n'; });
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = currentSupplier.replace(/\s+/g, '_') + '_Orders_' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---- Seed data ----
+
+function seedInitialData() {
+  const version = localStorage.getItem('ats_data_version') || '0';
+  if (version >= '5') return;
+
+  // Matthew de Beer = preferential rate, Leo Kruger = 70% profit
+  const orders = [
+    makeOrder('MM-0001', '2026-05-04', 'Arnav', '+27 78 581 8788',
+      '2 x iPharma Reta Pens', 2, 5350, 3590, 1760, 'standard', 1,
+      'Sent', '', '87 South Avenue, Atholl, 2196', ''),
+    makeOrder('MM-0002', '2026-05-04', 'Matthew de Beer', '27834066290',
+      '1 x Vmed Test E\n1 x Vmed NPP 100\n1 x Tamoxifen Vmed', 3, 1210, 1050, 160, 'preferential', 1,
+      'Sent', '', '1001 John Vorster Drive, Southdowns Estate, Unit 16 Lofts North, Irene Farm, 0048', ''),
+    makeOrder('MM-0003', '2026-05-04', 'Natalie Zeelie', '0716870319',
+      '1 x iPharma Reta Pen', 1, 2750, 1870, 880, 'standard', 1,
+      'Dispatched', 'RE1204102', '56 4th Street, Wynberg, Sandton Johannesburg, 2090', ''),
+    makeOrder('MM-0004', '2026-05-04', 'Hester Zeelie', '0763307227',
+      '1 x iPharma Reta Pen', 1, 2750, 1870, 880, 'standard', 1,
+      'Sent', '', '11 Karob avenue, Doringkruin, Klerksdorp, 2576', ''),
+    makeOrder('MM-0005', '2026-05-04', 'Lurraine', '+27 82 778 1530',
+      '1 x iPharma Reta Pens', 1, 2750, 1870, 880, 'standard', 1,
+      'Sent', '', 'Exxaro Resources, 263B West street, Die Hoewes, Centurion, 0157', ''),
+    makeOrder('MM-0006', '2026-05-05', 'Warren van Niekerk', '+27 82 574 2493',
+      '3 x iPharma Reta Pens\n1 x UPA Test E\n1 x Glucophage 1000\n1 x Tesar 80mg', 6, 7860, 6195, 1665, 'standard', 1,
+      'Sent', '', '129 Harris road Sebenza edenvale', 'Glucophage and Telmisartan was out of stock - supplier collecting'),
+    makeOrder('MM-0007', '2026-05-05', 'Leo Kruger', '0826527825',
+      '3 x Reta Pens iPharma\n1 x Tirzep Pen iPharma', 4, 10350, 6860, 2443, 'standard', 0.7,
+      'Dispatched', 'RE1204082', '1233 Caley Lane Queenswood', ''),
+    makeOrder('MM-0008', '2026-05-05', 'Jonty', '+27 71 795 1709',
+      '1 x Reta Pen iPharma', 1, 2750, 1870, 880, 'standard', 1,
+      'Dispatched', 'RE1204075', '199 Bryanston drive, Bryanston place office park, Company name is GCC', ''),
+    makeOrder('MM-0009', '2026-05-05', 'Armand Nel', '+27 71 354 2616',
+      '1 x iPharma L-Carnitine', 1, 600, 460, 140, 'standard', 1,
+      'Dispatched', 'RE1204084', '350 Brooks straat, Menlo Park, Pretoria', ''),
+    makeOrder('MM-0010', '2026-05-05', 'Arno', '+27 79 863 7280',
+      '2 x test cypionate\n1 x tren acetate\n1 x Nolvadex\n1 x Arimidex\n1 x cialis daily\nALL NOVA LABS', 6, 2520, 1925, 595, 'standard', 1,
+      'Dispatched', 'RE1204120', 'Plot 35C, Garsfontein Road, Tierpoort', ''),
+    makeOrder('MM-0011', '2026-05-05', 'Kiara Dempers', '+27 79 528 8000',
+      '1 x Keifei Test E', 1, 750, 650, 100, 'standard', 1,
+      'Sent', '', '60 Hibiscus Way, Bergsig, Cape Town, 7550', 'Alt contact: +27 76 919 8679 (carrier calls only)'),
+    makeOrder('MM-0012', '2026-05-06', 'Sunet', '0825629685',
+      '1 x Reta Pen iPharma', 1, 2750, 1870, 880, 'standard', 1,
+      'Sent', '', '25 Van Tonder road, Edenglen', ''),
+    makeOrder('MM-0013', '2026-05-06', 'Juan Kitshoff', '+27 84 644 2320',
+      '1 x Vmed Test E\n1 x Vmed NPP 100', 2, 1100, 870, 230, 'standard', 1,
+      'Sent', '', '574 Petronella street, Garsfontein, Pretoria', ''),
+    makeOrder('MM-0014', '2026-05-07', 'Arno', '+27 79 863 7280',
+      '1 x MyLife Tirzep Pen\n1 x NOVA Test C', 2, 2820, 1990, 830, 'standard', 1,
+      'Sent', '', 'Plot 35C, Garsfontein Road, Tierpoort', ''),
+  ];
+
+  localStorage.setItem(storageKey('Muscle Mecca'), JSON.stringify(orders));
+  localStorage.setItem('ats_data_version', '5');
+}
+
+function makeOrder(num, date, client, phone, items, qty, retail, cost, profit, tier, profitMult, status, tracking, address, notes) {
+  return {
+    id: generateId(), orderNumber: num, orderDate: date,
+    clientName: client, clientPhone: phone, items: items,
+    quantity: String(qty), totalCost: retail.toFixed(2),
+    totalCostPrice: cost.toFixed(2), profit: profit.toFixed(2),
+    courierFee: COURIER_FEE.toFixed(2), priceTier: tier, profitMult: String(profitMult),
+    paymentStatus: 'Pending', orderStatus: status,
+    trackingNumber: tracking, deliveryAddress: address,
+    deliveryDate: '', notes: notes
+  };
+}
+
+// ---- Init ----
+
+document.addEventListener('DOMContentLoaded', () => {
+  seedInitialData();
+
+  const tabsContainer = document.getElementById('supplierTabs');
+  SUPPLIERS.forEach(supplier => {
+    const btn = document.createElement('button');
+    btn.textContent = supplier;
+    btn.dataset.supplier = supplier;
+    btn.addEventListener('click', () => switchSupplier(supplier));
+    if (supplier === currentSupplier) btn.classList.add('active');
+    tabsContainer.appendChild(btn);
+  });
+
+  // Initialize week tabs - auto-select most recent week
+  const weeks = getAvailableWeeks(currentSupplier);
+  if (weeks.length > 0) currentWeek = weeks[weeks.length - 1];
+  renderWeekTabs();
+
+  document.getElementById('searchBox').addEventListener('input', renderOrders);
+
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) { overlay.classList.remove('active'); editingOrderId = null; parsedOrders = []; }
+    });
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active')); editingOrderId = null; }
+  });
+
+  renderOrders();
+  renderSummary();
+});

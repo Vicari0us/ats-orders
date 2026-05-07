@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ATS Orders</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header>
+    <div class="header-left">
+      <div class="header-icon"><i class="fas fa-cube"></i></div>
+      <div>
+        <h1>ATS Orders</h1>
+        <span class="subtitle">Order Tracking System</span>
+      </div>
+    </div>
+  </header>
+
+  <nav class="supplier-tabs" id="supplierTabs"></nav>
+  <div class="week-tabs" id="weekTabs"></div>
+
+  <div class="container">
+
+    <!-- Summary Cards -->
+    <div class="summary-cards">
+      <div class="summary-card card-orders">
+        <div class="card-icon"><i class="fas fa-clipboard-list"></i></div>
+        <div class="card-content">
+          <div class="label">Total Orders</div>
+          <div class="value" id="totalOrders">0</div>
+        </div>
+      </div>
+      <div class="summary-card card-revenue">
+        <div class="card-icon"><i class="fas fa-coins"></i></div>
+        <div class="card-content">
+          <div class="label">Total Revenue</div>
+          <div class="value" id="totalRevenue">R0.00</div>
+        </div>
+      </div>
+      <div class="summary-card card-cost">
+        <div class="card-icon"><i class="fas fa-file-invoice-dollar"></i></div>
+        <div class="card-content">
+          <div class="label">Total Cost</div>
+          <div class="value" id="totalCostPrice">R0.00</div>
+        </div>
+      </div>
+      <div class="summary-card card-profit">
+        <div class="card-icon"><i class="fas fa-chart-line"></i></div>
+        <div class="card-content">
+          <div class="label">Total Profit</div>
+          <div class="value" id="totalProfit">R0.00</div>
+        </div>
+      </div>
+      <div class="summary-card card-collected">
+        <div class="card-icon"><i class="fas fa-hand-holding-dollar"></i></div>
+        <div class="card-content">
+          <div class="label">Collected</div>
+          <div class="value" id="totalCollected">R0.00</div>
+          <div class="sub-value" id="collectedPct">0%</div>
+        </div>
+      </div>
+      <div class="summary-card card-outstanding">
+        <div class="card-icon"><i class="fas fa-clock"></i></div>
+        <div class="card-content">
+          <div class="label">Outstanding</div>
+          <div class="value" id="totalOutstanding">R0.00</div>
+        </div>
+      </div>
+      <div class="summary-card card-active">
+        <div class="card-icon"><i class="fas fa-spinner"></i></div>
+        <div class="card-content">
+          <div class="label">Active Orders</div>
+          <div class="value" id="activeOrders">0</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions Bar -->
+    <div class="actions-bar">
+      <div class="left">
+        <button class="btn btn-primary" onclick="openNewOrder()"><i class="fas fa-plus"></i> New Order</button>
+        <button class="btn btn-whatsapp" onclick="openImportModal()"><i class="fab fa-whatsapp"></i> Import Chat</button>
+        <button class="btn btn-success" onclick="exportCSV()"><i class="fas fa-file-csv"></i> Export CSV</button>
+      </div>
+      <div class="search-wrapper">
+        <i class="fas fa-search search-icon"></i>
+        <input type="text" id="searchBox" class="search-box" placeholder="Search orders...">
+      </div>
+    </div>
+
+    <!-- Orders Table -->
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th><i class="fas fa-hashtag th-icon"></i>Order #</th>
+            <th><i class="fas fa-calendar-day th-icon"></i>Date</th>
+            <th><i class="fas fa-user th-icon"></i>Client</th>
+            <th><i class="fas fa-box-open th-icon"></i>Items</th>
+            <th><i class="fas fa-tag th-icon"></i>Retail</th>
+            <th><i class="fas fa-receipt th-icon"></i>Cost</th>
+            <th><i class="fas fa-arrow-trend-up th-icon"></i>Profit</th>
+            <th><i class="fas fa-credit-card th-icon"></i>Payment</th>
+            <th><i class="fas fa-circle-info th-icon"></i>Status</th>
+            <th><i class="fas fa-truck th-icon"></i>Tracking</th>
+            <th><i class="fas fa-ellipsis th-icon"></i>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="ordersBody"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- ============ Order Form Modal ============ -->
+  <div class="modal-overlay" id="orderModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle"><i class="fas fa-file-pen modal-title-icon"></i>New Order</h2>
+        <button class="modal-close" onclick="closeOrderModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="orderForm" onsubmit="event.preventDefault(); saveOrder();">
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="orderNumber"><i class="fas fa-hashtag"></i> Order #</label>
+              <input type="text" id="orderNumber">
+            </div>
+            <div class="form-group">
+              <label for="orderDate"><i class="fas fa-calendar"></i> Order Date *</label>
+              <input type="date" id="orderDate" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="clientName"><i class="fas fa-user"></i> Client Name *</label>
+              <input type="text" id="clientName" required placeholder="Customer name">
+            </div>
+            <div class="form-group">
+              <label for="clientPhone"><i class="fas fa-phone"></i> Phone</label>
+              <input type="text" id="clientPhone" placeholder="+27...">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="items"><i class="fas fa-box-open"></i> Items *</label>
+              <textarea id="items" required placeholder="1 x Product A&#10;2 x Product B" rows="3"></textarea>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="autoPrice()" style="margin-top:6px; align-self:flex-start;"><i class="fas fa-calculator"></i> Auto-price from items</button>
+              <div id="priceBreakdown" style="margin-top:8px; font-size:0.82rem; color:#555; line-height:1.6;"></div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="quantity"><i class="fas fa-cubes"></i> Total Qty</label>
+              <input type="number" id="quantity" min="0" step="1" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label for="totalCost"><i class="fas fa-tag"></i> Retail Total (R)</label>
+              <input type="number" id="totalCost" min="0" step="0.01" placeholder="0.00">
+            </div>
+            <div class="form-group">
+              <label for="totalCostPrice"><i class="fas fa-receipt"></i> Cost Total (R)</label>
+              <input type="number" id="totalCostPrice" min="0" step="0.01" placeholder="0.00">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="courierFee"><i class="fas fa-truck-fast"></i> Courier Fee (R)</label>
+              <input type="number" id="courierFee" min="0" step="0.01" value="150.00" placeholder="150.00">
+            </div>
+            <div class="form-group">
+              <label for="profit"><i class="fas fa-chart-line"></i> Profit (R)</label>
+              <input type="number" id="profit" min="0" step="0.01" placeholder="0.00" readonly style="background:rgba(5,150,105,0.08); font-weight:600; color:#34d399; border-color:rgba(5,150,105,0.15);">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="paymentStatus"><i class="fas fa-credit-card"></i> Payment Status</label>
+              <select id="paymentStatus">
+                <option value="Pending">Pending</option>
+                <option value="Paid">Paid</option>
+                <option value="Partial">Partial</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="orderStatus"><i class="fas fa-circle-info"></i> Order Status</label>
+              <select id="orderStatus">
+                <option value="New">New</option>
+                <option value="Sent">Sent to Supplier</option>
+                <option value="Dispatched">Dispatched</option>
+                <option value="Delivered">Delivered</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="trackingNumber"><i class="fas fa-barcode"></i> Tracking Number</label>
+              <input type="text" id="trackingNumber" placeholder="RE...">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="deliveryAddress"><i class="fas fa-location-dot"></i> Delivery Address</label>
+              <textarea id="deliveryAddress" placeholder="Full delivery address" rows="2"></textarea>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="deliveryDate"><i class="fas fa-calendar-check"></i> Delivery Date</label>
+              <input type="date" id="deliveryDate">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="notes"><i class="fas fa-sticky-note"></i> Notes</label>
+              <textarea id="notes" placeholder="Additional notes..." rows="2"></textarea>
+            </div>
+          </div>
+
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeOrderModal()"><i class="fas fa-xmark"></i> Cancel</button>
+        <button class="btn btn-primary" onclick="saveOrder()"><i class="fas fa-check"></i> Save Order</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Import WhatsApp Modal ============ -->
+  <div class="modal-overlay" id="importModal">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2><i class="fab fa-whatsapp modal-title-icon" style="color:#25d366;"></i>Import WhatsApp Chat</h2>
+        <button class="modal-close" onclick="closeImportModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom:12px; color:#555; font-size:0.9rem;">
+          Paste the WhatsApp chat below. The parser will detect orders (items, client name, phone, address), tracking numbers, and auto-calculate prices including R150 courier fee.
+        </p>
+        <textarea id="chatInput" placeholder="[08:50, 04/05/2026] Leo: 2 x iPharma Reta Pens&#10;&#10;Arnav&#10;+27 78 581 8788&#10;&#10;87 South Avenue, Atholl, 2196"></textarea>
+        <div class="parse-actions">
+          <button class="btn btn-whatsapp" onclick="parseWhatsAppChat()"><i class="fas fa-wand-magic-sparkles"></i> Parse Orders</button>
+          <span id="parseStatus" class="parse-status"></span>
+        </div>
+        <div id="parsedOrdersContainer"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeImportModal()"><i class="fas fa-xmark"></i> Cancel</button>
+        <button class="btn btn-primary" onclick="importSelectedOrders()"><i class="fas fa-file-import"></i> Import Selected</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
