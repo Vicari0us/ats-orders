@@ -55,6 +55,7 @@ const PRICE_LISTS = {
     // TABLETS
     { name: 'Anaps50 (Oxymetholone)', keywords: ['anaps', 'oxymetholone'], sell: 300, pref: 255, cost: 210 },
     { name: 'Anavar 10', keywords: ['anavar 10', 'oxandrolone 10'], sell: 300, pref: 255, cost: 210 },
+    { name: 'Anavar 20', keywords: ['anavar 20', 'oxandrolone 20', 'bp anavar 20'], sell: 350, pref: 280, cost: 210 },
     { name: 'Anavar 50', keywords: ['anavar 50', 'oxandrolone 50'], sell: 500, pref: 450, cost: 400 },
     { name: 'Arimadex (Anastrozole)', keywords: ['arimadex', 'anastrozole'], sell: 250, pref: 210, cost: 170 },
     { name: 'Cialis 5mg', keywords: ['cialis 5', 'cialis5', 'tadalafil 5'], sell: 150, pref: 105, cost: 60 },
@@ -90,7 +91,7 @@ const PRICE_LISTS = {
     { name: 'Helios Injectable', keywords: ['helios inj', 'helios inject', 'clen yohimbe'], sell: 300, pref: 240, cost: 180 },
     { name: 'Mastaject 100', keywords: ['mastaject 100', 'mast 100', 'masteron 100', 'drostanolone 100'], sell: 400, pref: 350, cost: 300 },
     { name: 'Mastaject 200', keywords: ['mastaject 200', 'mast 200', 'masteron 200', 'drostanolone 200'], sell: 500, pref: 445, cost: 390 },
-    { name: 'Nandroject 300 (Deca)', keywords: ['nandroject', 'deca 300', 'nandrolone deca', 'deca'], sell: 420, pref: 365, cost: 310 },
+    { name: 'Nandroject 300 (Deca)', keywords: ['nandroject', 'deca 300', 'nandrolone deca', 'deca', 'deka'], sell: 420, pref: 365, cost: 310 },
     { name: 'Nebidoject 250 (Test U)', keywords: ['nebidoject', 'test undecanoate', 'test u', 'nebido'], sell: 320, pref: 260, cost: 200 },
     { name: 'Primoject 100', keywords: ['primoject 100', 'primo 100', 'primobolan 100'], sell: 590, pref: 530, cost: 470 },
     { name: 'Primoject 200', keywords: ['primoject 200', 'primo 200', 'primobolan 200'], sell: 810, pref: 770, cost: 730 },
@@ -171,6 +172,11 @@ const CLIENT_RULES = {
         { keywords: ['reta pen', 'reta pens', 'ipharma reta', '30mg pen', '30mg pens'], sell: 2200 }
       ]
     }
+  },
+  'HD Labs': {
+    preferential: [],
+    profitAdjust: { 'leo kruger': 0.7, 'leo': 0.7 },
+    priceOverrides: {}
   }
 };
 
@@ -987,13 +993,13 @@ function exportCSV() {
 
 // ---- Seed initial data (one-time, to Firestore) ----
 
-function makeOrder(num, date, client, phone, items, qty, retail, cost, profit, tier, profitMult, status, tracking, address, notes) {
+function makeOrder(num, date, client, phone, items, qty, retail, cost, profit, tier, profitMult, status, tracking, address, notes, supplier) {
   return {
     id: generateId(), orderNumber: num, orderDate: date,
     clientName: client, clientPhone: phone, items: items,
     quantity: String(qty), totalCost: retail.toFixed(2),
     totalCostPrice: cost.toFixed(2), profit: profit.toFixed(2),
-    courierFee: COURIER_FEE.toFixed(2), priceTier: tier, profitMult: String(profitMult),
+    courierFee: getCourierFee(supplier || 'Muscle Mecca').toFixed(2), priceTier: tier, profitMult: String(profitMult),
     paymentStatus: 'Pending', orderStatus: status,
     trackingNumber: tracking, deliveryAddress: address,
     deliveryDate: '', notes: notes
@@ -1008,8 +1014,7 @@ async function seedInitialData() {
   const snap = await db.collection('users').doc(currentUser.uid)
     .collection('suppliers').doc(key).get();
 
-  if (snap.exists) return; // Already seeded
-
+  if (!snap.exists) {
   const orders = [
     makeOrder('MM-0001', '2026-05-04', 'Arnav', '+27 78 581 8788',
       '2 x iPharma Reta Pens', 2, 5350, 3590, 1760, 'standard', 1,
@@ -1055,11 +1060,38 @@ async function seedInitialData() {
       'Sent', '', 'Plot 35C, Garsfontein Road, Tierpoort', ''),
   ];
 
-  // Save to Firestore and cache
+  // Save Muscle Mecca to Firestore and cache
   ordersCache['Muscle Mecca'] = orders;
   await db.collection('users').doc(currentUser.uid)
     .collection('suppliers').doc(key)
     .set({ orders });
+  } // end Muscle Mecca seed
+
+  // Seed HD Labs orders
+  const hdKey = supplierKey('HD Labs');
+  const hdSnap = await db.collection('users').doc(currentUser.uid)
+    .collection('suppliers').doc(hdKey).get();
+
+  if (!hdSnap.exists) {
+    const hdOrders = [
+      makeOrder('HD-0001', '2026-04-28', 'Donovan', '0711734576',
+        '2 x Testaject\n1 x Tamoxifen\n2 x Turanabol', 5, 1650, 880, 770, 'standard', 1,
+        'Sent', '', '1 Atlantic drive, Atlantic Hills Business Park, Unit G, Cape Farms, Cape Town', '', 'HD Labs'),
+      makeOrder('HD-0002', '2026-04-28', 'Leo Kruger', '0826527825',
+        '3 x Anavar 20mg\n3 x Testaject', 6, 2340, 1350, 693, 'standard', 0.7,
+        'Sent', '', '1233 Caley Lane Queenswood', '', 'HD Labs'),
+      makeOrder('HD-0003', '2026-04-29', 'Leo Kruger', '0826527825',
+        '2 x Testaject\n2 x Mastaject 200', 4, 1900, 1300, 420, 'standard', 0.7,
+        'Sent', '', '1233 Caley Lane Queenswood', '', 'HD Labs'),
+      makeOrder('HD-0004', '2026-04-29', 'William', '27737220059',
+        '2 x Dianabol 10mg\n12 x Sustanon Amp\n1 x Nandroject 300', 15, 0, 0, 0, 'standard', 1,
+        'Cancelled', '', '13 Ray street, Annlin, 0066', 'Cancelled - client backed out after no Sust Amps available', 'HD Labs'),
+    ];
+    ordersCache['HD Labs'] = hdOrders;
+    await db.collection('users').doc(currentUser.uid)
+      .collection('suppliers').doc(hdKey)
+      .set({ orders: hdOrders });
+  }
 }
 
 // ---- Init (Auth-gated) ----
