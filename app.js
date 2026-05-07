@@ -1067,29 +1067,6 @@ async function seedInitialData() {
     .set({ orders });
   } // end Muscle Mecca seed
 
-  // One-time: append week 2 HD Labs orders (remove after confirmed)
-  const hdKey = supplierKey('HD Labs');
-  const hdSnap = await db.collection('users').doc(currentUser.uid)
-    .collection('suppliers').doc(hdKey).get();
-  const existingHd = hdSnap.exists && hdSnap.data().orders ? hdSnap.data().orders : [];
-  if (!existingHd.some(o => o.orderNumber === 'HD-0005')) {
-    const newHdOrders = [
-      makeOrder('HD-0005', '2026-05-04', 'Kate Bester', '+27 72 811 5310',
-        '1 x Anavar 20mg', 1, 470, 330, 140, 'standard', 1,
-        'Sent', '', '1332 The Clubhouse Street, Maraisburg, 1709', '', 'HD Labs'),
-      makeOrder('HD-0006', '2026-05-05', 'Tiaan Kruger', '+27 71 678 8083',
-        '1 x Mastaject 200\n2 x Equiject', 3, 1380, 1070, 310, 'standard', 1,
-        'Sent', '', '5 Wesp rd, Sunward Park, Boksburg, 1459', '', 'HD Labs'),
-      makeOrder('HD-0007', '2026-05-07', 'Leo Kruger', '0826527825',
-        '1 x Retatrutide Vial\n1 x SuperBulk\n1 x Depoject\n1 x Nandroject 300', 4, 3400, 2150, 875, 'standard', 0.7,
-        'Sent', '', '1233 Caley Lane Queenswood', '', 'HD Labs'),
-    ];
-    const merged = existingHd.concat(newHdOrders);
-    ordersCache['HD Labs'] = merged;
-    await db.collection('users').doc(currentUser.uid)
-      .collection('suppliers').doc(hdKey)
-      .set({ orders: merged });
-  }
 }
 
 // ---- Init (Auth-gated) ----
