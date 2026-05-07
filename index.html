@@ -40,6 +40,10 @@
         <h1>ATS Orders</h1>
         <span class="subtitle">Order Tracking System</span>
       </div>
+      <div class="nav-toggle">
+        <button class="nav-btn active" id="navOrders" onclick="closeDashboard()"><i class="fas fa-table-list"></i> Orders</button>
+        <button class="nav-btn" id="navDashboard" onclick="openDashboard()"><i class="fas fa-chart-pie"></i> Dashboard</button>
+      </div>
     </div>
     <div class="user-info" id="userInfo" style="display:none;">
       <img id="userAvatar" class="user-avatar" src="" alt="User">
@@ -54,7 +58,7 @@
   <div class="container">
 
     <!-- Summary Cards -->
-    <div class="summary-cards">
+    <div class="summary-cards" id="ordersCards">
       <div class="summary-card card-orders">
         <div class="card-icon"><i class="fas fa-clipboard-list"></i></div>
         <div class="card-content">
@@ -108,7 +112,7 @@
     </div>
 
     <!-- Actions Bar -->
-    <div class="actions-bar">
+    <div class="actions-bar" id="ordersActions">
       <div class="left">
         <button class="btn btn-primary" onclick="openNewOrder()"><i class="fas fa-plus"></i> New Order</button>
         <button class="btn btn-whatsapp" onclick="openImportModal()"><i class="fab fa-whatsapp"></i> Import Chat</button>
@@ -120,8 +124,11 @@
       </div>
     </div>
 
+    <!-- Dashboard View (hidden by default) -->
+    <div id="dashboardView" style="display:none;"></div>
+
     <!-- Orders Table -->
-    <div class="table-wrapper">
+    <div class="table-wrapper" id="ordersContent">
       <table>
         <thead>
           <tr>

@@ -29,6 +29,7 @@ let editingOrderId = null;
 let parsedOrders = [];
 let currentUser = null;
 let ordersCache = {};
+let dashboardActive = false;
 
 // ---- Price List (sell = standard retail, pref = preferential, cost = cost price) ----
 
@@ -980,6 +981,394 @@ function importSelectedOrders() {
   renderOrders();
   renderSummary();
   alert(`Imported ${imported} orders into ${currentSupplier}.`);
+}
+
+// ---- Dashboard ----
+
+const SUPPLIER_COLORS = { 'Muscle Mecca': '#e94560', 'HD Labs': '#60a5fa', 'Elev8': '#34d399' };
+
+async function openDashboard() {
+  if (dashboardActive) return;
+  dashboardActive = true;
+  document.getElementById('navOrders').classList.remove('active');
+  document.getElementById('navDashboard').classList.add('active');
+
+  showLoading();
+  try {
+    await Promise.all(SUPPLIERS.map(s => loadOrders(s)));
+  } catch (err) {
+    console.error('Error loading dashboard data:', err);
+  }
+  hideLoading();
+
+  document.getElementById('supplierTabs').style.display = 'none';
+  document.getElementById('weekTabs').style.display = 'none';
+  document.getElementById('ordersCards').style.display = 'none';
+  document.getElementById('ordersActions').style.display = 'none';
+  document.getElementById('ordersContent').style.display = 'none';
+
+  const analytics = computeAnalytics();
+  renderDashboard(analytics);
+  document.getElementById('dashboardView').style.display = 'block';
+}
+
+function closeDashboard() {
+  if (!dashboardActive) return;
+  dashboardActive = false;
+  document.getElementById('navDashboard').classList.remove('active');
+  document.getElementById('navOrders').classList.add('active');
+
+  document.getElementById('dashboardView').style.display = 'none';
+  document.getElementById('supplierTabs').style.display = 'flex';
+  document.getElementById('weekTabs').style.display = 'flex';
+  document.getElementById('ordersCards').style.display = '';
+  document.getElementById('ordersActions').style.display = '';
+  document.getElementById('ordersContent').style.display = '';
+
+  renderWeekTabs();
+  renderOrders();
+  renderSummary();
+}
+
+function computeAnalytics() {
+  const allOrders = [];
+  const bySupplier = {};
+
+  for (const sup of SUPPLIERS) {
+    const orders = getOrders(sup);
+    bySupplier[sup] = orders;
+    orders.forEach(o => allOrders.push({ ...o, _supplier: sup }));
+  }
+
+  // Overview totals
+  const totalOrders = allOrders.length;
+  const totalRevenue = allOrders.reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
+  const totalCost = allOrders.reduce((s, o) => s + (parseFloat(o.totalCostPrice) || 0), 0);
+  const totalProfit = allOrders.reduce((s, o) => s + (parseFloat(o.profit) || 0), 0);
+  const collected = allOrders.filter(o => o.paymentStatus === 'Paid').reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
+  const outstanding = totalRevenue - collected;
+  const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+  const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+  // Per-supplier breakdown
+  const supplierStats = SUPPLIERS.map(sup => {
+    const orders = bySupplier[sup];
+    const rev = orders.reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
+    const cost = orders.reduce((s, o) => s + (parseFloat(o.totalCostPrice) || 0), 0);
+    const profit = orders.reduce((s, o) => s + (parseFloat(o.profit) || 0), 0);
+    const col = orders.filter(o => o.paymentStatus === 'Paid').reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
+    return {
+      name: sup, count: orders.length, revenue: rev, cost, profit,
+      margin: rev > 0 ? (profit / rev) * 100 : 0,
+      collected: rev > 0 ? (col / rev) * 100 : 0,
+      avgOrder: orders.length > 0 ? rev / orders.length : 0
+    };
+  });
+
+  // Weekly breakdown
+  const weekMap = {};
+  allOrders.forEach(o => {
+    if (!o.orderDate) return;
+    const we = getWeekEnding(o.orderDate);
+    if (!weekMap[we]) weekMap[we] = { week: we, total: { count: 0, revenue: 0, cost: 0, profit: 0 } };
+    const entry = weekMap[we];
+    if (!entry[o._supplier]) entry[o._supplier] = { count: 0, revenue: 0, cost: 0, profit: 0 };
+    const rev = parseFloat(o.totalCost) || 0;
+    const cost = parseFloat(o.totalCostPrice) || 0;
+    const profit = parseFloat(o.profit) || 0;
+    entry[o._supplier].count++;
+    entry[o._supplier].revenue += rev;
+    entry[o._supplier].cost += cost;
+    entry[o._supplier].profit += profit;
+    entry.total.count++;
+    entry.total.revenue += rev;
+    entry.total.cost += cost;
+    entry.total.profit += profit;
+  });
+  const weeklyBreakdown = Object.values(weekMap).sort((a, b) => a.week.localeCompare(b.week));
+
+  // Monthly breakdown
+  const monthMap = {};
+  allOrders.forEach(o => {
+    if (!o.orderDate) return;
+    const month = o.orderDate.slice(0, 7);
+    if (!monthMap[month]) monthMap[month] = { month, total: { count: 0, revenue: 0, cost: 0, profit: 0 } };
+    const entry = monthMap[month];
+    if (!entry[o._supplier]) entry[o._supplier] = { count: 0, revenue: 0, cost: 0, profit: 0 };
+    const rev = parseFloat(o.totalCost) || 0;
+    const cost = parseFloat(o.totalCostPrice) || 0;
+    const profit = parseFloat(o.profit) || 0;
+    entry[o._supplier].count++;
+    entry[o._supplier].revenue += rev;
+    entry[o._supplier].cost += cost;
+    entry[o._supplier].profit += profit;
+    entry.total.count++;
+    entry.total.revenue += rev;
+    entry.total.cost += cost;
+    entry.total.profit += profit;
+  });
+  const monthlyBreakdown = Object.values(monthMap).sort((a, b) => a.month.localeCompare(b.month));
+
+  // Top products by qty sold
+  const productQty = {};
+  const productProfit = {};
+  allOrders.forEach(o => {
+    const lines = (o.items || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const sup = o._supplier;
+    for (const line of lines) {
+      const qm = line.match(/^(\d+)\s*[x×]\s*/i);
+      const qty = qm ? parseInt(qm[1]) : 0;
+      if (!qty) continue;
+      const match = lookupItemPrice(line, sup);
+      const name = match ? match.name : line.replace(/^\d+\s*[x×]\s*/i, '').trim();
+      if (!name || /^all\s/i.test(name)) continue;
+      productQty[name] = (productQty[name] || 0) + qty;
+      if (match) {
+        const rule = getClientRule(o.clientName, sup);
+        const override = getOverridePrice(line, rule.overrides);
+        const unitSell = override !== null ? override : (rule.tier === 'preferential' ? match.pref : match.sell);
+        const unitProfit = unitSell - match.cost;
+        productProfit[name] = (productProfit[name] || 0) + (qty * unitProfit);
+      }
+    }
+  });
+  const topProductsByQty = Object.entries(productQty).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topProductsByProfit = Object.entries(productProfit).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  // Top clients
+  const clientRevenue = {};
+  const clientCount = {};
+  allOrders.forEach(o => {
+    const name = o.clientName || 'Unknown';
+    clientRevenue[name] = (clientRevenue[name] || 0) + (parseFloat(o.totalCost) || 0);
+    clientCount[name] = (clientCount[name] || 0) + 1;
+  });
+  const topClientsByRevenue = Object.entries(clientRevenue).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topClientsByOrders = Object.entries(clientCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  // Quick stats
+  const biggestOrder = allOrders.reduce((best, o) => {
+    const val = parseFloat(o.totalCost) || 0;
+    return val > best.val ? { val, client: o.clientName, supplier: o._supplier } : best;
+  }, { val: 0, client: '-', supplier: '-' });
+
+  const totalItems = allOrders.reduce((s, o) => {
+    return s + (o.items || '').split('\n').reduce((qs, line) => {
+      const m = line.match(/^(\d+)\s*[x×]/i);
+      return qs + (m ? parseInt(m[1]) : 0);
+    }, 0);
+  }, 0);
+  const avgItemsPerOrder = totalOrders > 0 ? (totalItems / totalOrders).toFixed(1) : 0;
+
+  const collectionRate = totalRevenue > 0 ? ((collected / totalRevenue) * 100).toFixed(1) : 0;
+
+  const dayCount = [0, 0, 0, 0, 0, 0, 0];
+  allOrders.forEach(o => { if (o.orderDate) dayCount[new Date(o.orderDate).getDay()]++; });
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const busiestDayIdx = dayCount.indexOf(Math.max(...dayCount));
+  const busiestDay = dayNames[busiestDayIdx];
+
+  return {
+    totalOrders, totalRevenue, totalCost, totalProfit, collected, outstanding,
+    avgOrderValue, profitMargin, supplierStats, weeklyBreakdown, monthlyBreakdown,
+    topProductsByQty, topProductsByProfit, topClientsByRevenue, topClientsByOrders,
+    biggestOrder, avgItemsPerOrder, collectionRate, busiestDay, busiestDayOrders: dayCount[busiestDayIdx]
+  };
+}
+
+function renderDashboard(a) {
+  const container = document.getElementById('dashboardView');
+  let html = '';
+
+  // Header
+  html += `<div class="dashboard-header">
+    <h2><i class="fas fa-chart-pie"></i> Analytics Dashboard</h2>
+  </div>`;
+
+  // Overview cards
+  html += `<div class="analytics-cards">
+    ${dashCard('fa-clipboard-list', 'Total Orders', a.totalOrders, 'card-orders')}
+    ${dashCard('fa-coins', 'Total Revenue', formatRand(a.totalRevenue), 'card-revenue')}
+    ${dashCard('fa-file-invoice-dollar', 'Total Cost', formatRand(a.totalCost), 'card-cost')}
+    ${dashCard('fa-chart-line', 'Total Profit', formatRand(a.totalProfit), 'card-profit')}
+    ${dashCard('fa-hand-holding-dollar', 'Collected', formatRand(a.collected), 'card-collected')}
+    ${dashCard('fa-clock', 'Outstanding', formatRand(a.outstanding), 'card-outstanding')}
+    ${dashCard('fa-receipt', 'Avg Order Value', formatRand(a.avgOrderValue), 'card-revenue')}
+    ${dashCard('fa-percent', 'Profit Margin', a.profitMargin.toFixed(1) + '%', 'card-profit')}
+  </div>`;
+
+  // Supplier breakdown
+  html += `<div class="analytics-section">
+    <h3><i class="fas fa-building"></i> Supplier Breakdown</h3>
+    <div class="analytics-table-wrap"><table class="analytics-table"><thead><tr>
+      <th>Supplier</th><th class="num">Orders</th><th class="num">Revenue</th>
+      <th class="num">Cost</th><th class="num">Profit</th><th class="num">Margin</th>
+      <th class="num">Collected %</th><th class="num">Avg Order</th>
+    </tr></thead><tbody>`;
+  for (const s of a.supplierStats) {
+    html += `<tr><td><strong style="color:${SUPPLIER_COLORS[s.name]}">${s.name}</strong></td>
+      <td class="num">${s.count}</td><td class="num revenue-val">${formatRand(s.revenue)}</td>
+      <td class="num">${formatRand(s.cost)}</td><td class="num profit-val">${formatRand(s.profit)}</td>
+      <td class="num">${s.margin.toFixed(1)}%</td><td class="num">${s.collected.toFixed(0)}%</td>
+      <td class="num">${formatRand(s.avgOrder)}</td></tr>`;
+  }
+  html += `<tr class="row-total"><td><strong>TOTAL</strong></td>
+    <td class="num">${a.totalOrders}</td><td class="num">${formatRand(a.totalRevenue)}</td>
+    <td class="num">${formatRand(a.totalCost)}</td><td class="num">${formatRand(a.totalProfit)}</td>
+    <td class="num">${a.profitMargin.toFixed(1)}%</td><td class="num">${a.totalRevenue > 0 ? ((a.collected/a.totalRevenue)*100).toFixed(0) : 0}%</td>
+    <td class="num">${formatRand(a.avgOrderValue)}</td></tr>`;
+  html += `</tbody></table></div>`;
+
+  // Supplier share bar
+  html += `<div style="margin-top:14px;">
+    <div class="supplier-share">`;
+  for (const s of a.supplierStats) {
+    const pct = a.totalRevenue > 0 ? (s.revenue / a.totalRevenue) * 100 : 0;
+    html += `<div class="share-segment" style="width:${pct}%;background:${SUPPLIER_COLORS[s.name]};"></div>`;
+  }
+  html += `</div><div class="share-legend">`;
+  for (const s of a.supplierStats) {
+    const pct = a.totalRevenue > 0 ? ((s.revenue / a.totalRevenue) * 100).toFixed(1) : '0.0';
+    html += `<span><span class="share-dot" style="background:${SUPPLIER_COLORS[s.name]}"></span>${s.name}: ${pct}%</span>`;
+  }
+  html += `</div></div></div>`;
+
+  // Monthly breakdown
+  if (a.monthlyBreakdown.length > 0) {
+    html += `<div class="analytics-section"><h3><i class="fas fa-calendar-alt"></i> Monthly Breakdown</h3>
+      <div class="analytics-table-wrap"><table class="analytics-table"><thead><tr>
+        <th>Month</th>`;
+    for (const sup of SUPPLIERS) html += `<th class="num" style="color:${SUPPLIER_COLORS[sup]}">${sup}</th>`;
+    html += `<th class="num">Total Revenue</th><th class="num">Total Profit</th><th class="num">Orders</th>
+      </tr></thead><tbody>`;
+    for (const m of a.monthlyBreakdown) {
+      html += `<tr><td><strong>${m.month}</strong></td>`;
+      for (const sup of SUPPLIERS) {
+        const d = m[sup] || { revenue: 0 };
+        html += `<td class="num">${formatRand(d.revenue)}</td>`;
+      }
+      html += `<td class="num revenue-val">${formatRand(m.total.revenue)}</td>
+        <td class="num profit-val">${formatRand(m.total.profit)}</td>
+        <td class="num">${m.total.count}</td></tr>`;
+    }
+    html += `</tbody></table></div></div>`;
+  }
+
+  // Weekly breakdown
+  if (a.weeklyBreakdown.length > 0) {
+    html += `<div class="analytics-section"><h3><i class="fas fa-calendar-week"></i> Weekly Breakdown</h3>
+      <div class="analytics-table-wrap"><table class="analytics-table"><thead><tr>
+        <th>Week Ending</th>`;
+    for (const sup of SUPPLIERS) html += `<th class="num" style="color:${SUPPLIER_COLORS[sup]}">${sup}</th>`;
+    html += `<th class="num">Total Revenue</th><th class="num">Total Profit</th><th class="num">Orders</th><th class="num">WoW Growth</th>
+      </tr></thead><tbody>`;
+    for (let i = 0; i < a.weeklyBreakdown.length; i++) {
+      const w = a.weeklyBreakdown[i];
+      const d = new Date(w.week + 'T00:00:00');
+      const label = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const prevRev = i > 0 ? a.weeklyBreakdown[i - 1].total.revenue : 0;
+      const growth = prevRev > 0 ? ((w.total.revenue - prevRev) / prevRev * 100).toFixed(1) : '-';
+      const growthClass = growth !== '-' ? (parseFloat(growth) >= 0 ? 'growth-pos' : 'growth-neg') : '';
+      const growthDisplay = growth !== '-' ? (parseFloat(growth) >= 0 ? '+' : '') + growth + '%' : '-';
+
+      html += `<tr><td><strong>${label}</strong></td>`;
+      for (const sup of SUPPLIERS) {
+        const sd = w[sup] || { revenue: 0 };
+        html += `<td class="num">${formatRand(sd.revenue)}</td>`;
+      }
+      html += `<td class="num revenue-val">${formatRand(w.total.revenue)}</td>
+        <td class="num profit-val">${formatRand(w.total.profit)}</td>
+        <td class="num">${w.total.count}</td>
+        <td class="num ${growthClass}">${growthDisplay}</td></tr>`;
+    }
+    html += `</tbody></table></div></div>`;
+  }
+
+  // Top products + clients
+  html += `<div class="analytics-section"><h3><i class="fas fa-trophy"></i> Top Products</h3>
+    <div class="stat-pair">
+      ${rankCard('fa-fire', 'Most Sold (by quantity)', a.topProductsByQty, v => v + ' sold')}
+      ${rankCard('fa-sack-dollar', 'Most Profitable', a.topProductsByProfit, v => formatRand(v))}
+    </div></div>`;
+
+  html += `<div class="analytics-section"><h3><i class="fas fa-users"></i> Top Clients</h3>
+    <div class="stat-pair">
+      ${rankCard('fa-coins', 'By Revenue', a.topClientsByRevenue, v => formatRand(v))}
+      ${rankCard('fa-clipboard-list', 'By Order Count', a.topClientsByOrders, v => v + ' orders')}
+    </div></div>`;
+
+  // Quick stats
+  html += `<div class="analytics-section"><h3><i class="fas fa-bolt"></i> Quick Stats</h3>
+    <div class="quick-stats">
+      ${quickStat('fa-crown', 'Biggest Single Order', formatRand(a.biggestOrder.val), a.biggestOrder.client)}
+      ${quickStat('fa-boxes-stacked', 'Avg Items per Order', a.avgItemsPerOrder)}
+      ${quickStat('fa-hand-holding-dollar', 'Collection Rate', a.collectionRate + '%')}
+      ${quickStat('fa-calendar-day', 'Busiest Day', a.busiestDay, a.busiestDayOrders + ' orders')}
+      ${quickStat('fa-box-open', 'Total Items Sold', allItemsCount(a))}
+      ${quickStat('fa-users', 'Unique Clients', uniqueClients())}
+    </div></div>`;
+
+  container.innerHTML = html;
+}
+
+function dashCard(icon, label, value, themeClass) {
+  return `<div class="summary-card ${themeClass}">
+    <div class="card-icon"><i class="fas ${icon}"></i></div>
+    <div class="card-content">
+      <div class="label">${label}</div>
+      <div class="value">${value}</div>
+    </div>
+  </div>`;
+}
+
+function rankCard(icon, title, items, formatVal) {
+  const maxVal = items.length > 0 ? items[0][1] : 1;
+  let listHtml = '';
+  items.forEach(([name, val], i) => {
+    const pct = maxVal > 0 ? (val / maxVal) * 100 : 0;
+    listHtml += `<li>
+      <span class="rank-num">${i + 1}</span>
+      <div class="rank-bar-wrap">
+        <div class="rank-name">${esc(name)}</div>
+        <div class="rank-bar"><div class="rank-bar-fill" style="width:${pct}%"></div></div>
+      </div>
+      <span class="rank-val">${formatVal(val)}</span>
+    </li>`;
+  });
+  if (items.length === 0) listHtml = '<li style="color:#4a5568;">No data</li>';
+  return `<div class="insight-card"><h4><i class="fas ${icon}"></i> ${title}</h4><ul class="rank-list">${listHtml}</ul></div>`;
+}
+
+function quickStat(icon, label, value, sub) {
+  return `<div class="quick-stat">
+    <div class="qs-icon"><i class="fas ${icon}"></i></div>
+    <div>
+      <div class="qs-label">${label}</div>
+      <div class="qs-value">${value}</div>
+      ${sub ? '<div style="font-size:0.72rem;color:#4a5568;margin-top:2px;">' + esc(String(sub)) + '</div>' : ''}
+    </div>
+  </div>`;
+}
+
+function allItemsCount(a) {
+  let total = 0;
+  for (const sup of SUPPLIERS) {
+    getOrders(sup).forEach(o => {
+      (o.items || '').split('\n').forEach(line => {
+        const m = line.match(/^(\d+)\s*[x×]/i);
+        if (m) total += parseInt(m[1]);
+      });
+    });
+  }
+  return total;
+}
+
+function uniqueClients() {
+  const names = new Set();
+  for (const sup of SUPPLIERS) {
+    getOrders(sup).forEach(o => { if (o.clientName) names.add(o.clientName.toLowerCase().trim()); });
+  }
+  return names.size;
 }
 
 // ---- CSV Export ----
