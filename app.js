@@ -20,7 +20,9 @@ const db = firebase.firestore();
 
 // ---- App State ----
 const SUPPLIERS = ['Muscle Mecca', 'HD Labs', 'Elev8'];
-const COURIER_FEE = 150;
+const COURIER_FEES = { 'Muscle Mecca': 150, 'HD Labs': 110, 'Elev8': 150 };
+function getCourierFee(supplier) { return COURIER_FEES[supplier || currentSupplier] || 150; }
+const COURIER_FEE = 150; // legacy reference, use getCourierFee() for supplier-specific
 let currentSupplier = SUPPLIERS[0];
 let currentWeek = null;
 let editingOrderId = null;
@@ -48,6 +50,113 @@ const PRICE_LISTS = {
     { name: 'NOVA Cialis Daily', keywords: ['cialis daily'], sell: 250, pref: 198, cost: 145 },
     { name: 'Keifei Test E 250', keywords: ['keifei test e'], sell: 600, pref: 550, cost: 500 },
     { name: 'MyLife Tirzepatide Pen', keywords: ['mylife tirzep', 'mylife tirz'], sell: 2250, pref: 1900, cost: 1550 },
+  ],
+  'HD Labs': [
+    // TABLETS
+    { name: 'Anaps50 (Oxymetholone)', keywords: ['anaps', 'oxymetholone'], sell: 300, pref: 255, cost: 210 },
+    { name: 'Anavar 10', keywords: ['anavar 10', 'oxandrolone 10'], sell: 300, pref: 255, cost: 210 },
+    { name: 'Anavar 50', keywords: ['anavar 50', 'oxandrolone 50'], sell: 500, pref: 450, cost: 400 },
+    { name: 'Arimadex (Anastrozole)', keywords: ['arimadex', 'anastrozole'], sell: 250, pref: 210, cost: 170 },
+    { name: 'Cialis 5mg', keywords: ['cialis 5', 'cialis5', 'tadalafil 5'], sell: 150, pref: 105, cost: 60 },
+    { name: 'Cialis 20mg', keywords: ['cialis 20', 'cialis20', 'tadalafil 20'], sell: 190, pref: 145, cost: 100 },
+    { name: 'Clenbuterol Tabs', keywords: ['clen tab', 'clenbuterol tab', 'clen oral'], sell: 180, pref: 135, cost: 90 },
+    { name: 'Clomid', keywords: ['clomid', 'clomiphene'], sell: 250, pref: 210, cost: 170 },
+    { name: 'DHEA 25', keywords: ['dhea'], sell: 250, pref: 200, cost: 150 },
+    { name: 'Dianabol 10', keywords: ['dianabol 10', 'dbol 10', 'dbol10'], sell: 150, pref: 110, cost: 70 },
+    { name: 'Dianabol 50', keywords: ['dianabol 50', 'dbol 50', 'dbol50'], sell: 250, pref: 195, cost: 140 },
+    { name: 'Famara (Letrozole)', keywords: ['famara', 'letrozole'], sell: 250, pref: 210, cost: 170 },
+    { name: 'Halotest', keywords: ['halotest', 'fluoxymesterone', 'halotestin'], sell: 680, pref: 630, cost: 580 },
+    { name: 'HeliosT3 Tabs', keywords: ['heliost3', 'helios t3'], sell: 200, pref: 155, cost: 110 },
+    { name: 'Ketotifen', keywords: ['ketotifen'], sell: 220, pref: 175, cost: 130 },
+    { name: 'Methyl-1-Test', keywords: ['methyl-1-test', 'methyl 1 test', 'm1t'], sell: 180, pref: 135, cost: 90 },
+    { name: 'Oraltren', keywords: ['oraltren', 'methyltrienolone', 'oral tren'], sell: 280, pref: 225, cost: 170 },
+    { name: 'Oral BPC', keywords: ['oral bpc', 'bpc tab', 'bpc oral'], sell: 550, pref: 485, cost: 420 },
+    { name: 'Primo 25 Tabs', keywords: ['primo 25', 'primo25', 'methenolone acetate'], sell: 540, pref: 465, cost: 390 },
+    { name: 'Proviron', keywords: ['proviron', 'mesterolone'], sell: 290, pref: 250, cost: 210 },
+    { name: 'Superdrol', keywords: ['superdrol'], sell: 280, pref: 225, cost: 170 },
+    { name: 'T3', keywords: ['t3', 'liothyronine'], sell: 190, pref: 135, cost: 80 },
+    { name: 'Yohimbine Tabs', keywords: ['yohimbine tab', 'yohimbine oral'], sell: 220, pref: 190, cost: 160 },
+    { name: 'Tamox (Tamoxifen)', keywords: ['tamox', 'tamoxifen', 'nolvadex'], sell: 190, pref: 135, cost: 80 },
+    { name: 'Turanabol 10', keywords: ['turanabol', 'tbol', 'turinabol'], sell: 280, pref: 210, cost: 140 },
+    { name: 'Winstrol 10', keywords: ['winstrol 10', 'winny 10', 'stanozolol 10'], sell: 200, pref: 140, cost: 80 },
+    { name: 'Winstrol 50', keywords: ['winstrol 50', 'winny 50', 'stanozolol 50'], sell: 320, pref: 235, cost: 150 },
+    // INJECTABLES
+    { name: 'Aquaject 100 (Test Susp)', keywords: ['aquaject', 'test suspension', 'test susp'], sell: 260, pref: 205, cost: 150 },
+    { name: 'Clenbuterol Injectable', keywords: ['clen inject', 'clenbuterol inject', 'clen inj'], sell: 260, pref: 215, cost: 170 },
+    { name: 'Depoject 200 (Test Cyp)', keywords: ['depoject', 'test cyp', 'test cypionate'], sell: 300, pref: 240, cost: 180 },
+    { name: 'Duraject 100 (NPP)', keywords: ['duraject', 'npp', 'nandrolone phenyl'], sell: 320, pref: 260, cost: 200 },
+    { name: 'Equiject 200 (Boldenone)', keywords: ['equiject', 'boldenone', 'eq 200', 'equipoise'], sell: 380, pref: 330, cost: 280 },
+    { name: 'Finaject (Tren Hex)', keywords: ['finaject', 'tren hex', 'trenbolone hex'], sell: 540, pref: 485, cost: 430 },
+    { name: 'Helios Injectable', keywords: ['helios inj', 'helios inject', 'clen yohimbe'], sell: 300, pref: 240, cost: 180 },
+    { name: 'Mastaject 100', keywords: ['mastaject 100', 'mast 100', 'masteron 100', 'drostanolone 100'], sell: 400, pref: 350, cost: 300 },
+    { name: 'Mastaject 200', keywords: ['mastaject 200', 'mast 200', 'masteron 200', 'drostanolone 200'], sell: 500, pref: 445, cost: 390 },
+    { name: 'Nandroject 300 (Deca)', keywords: ['nandroject', 'deca 300', 'nandrolone deca', 'deca'], sell: 420, pref: 365, cost: 310 },
+    { name: 'Nebidoject 250 (Test U)', keywords: ['nebidoject', 'test undecanoate', 'test u', 'nebido'], sell: 320, pref: 260, cost: 200 },
+    { name: 'Primoject 100', keywords: ['primoject 100', 'primo 100', 'primobolan 100'], sell: 590, pref: 530, cost: 470 },
+    { name: 'Primoject 200', keywords: ['primoject 200', 'primo 200', 'primobolan 200'], sell: 810, pref: 770, cost: 730 },
+    { name: 'Propioject 100 (Test Prop)', keywords: ['propioject', 'test prop', 'test propionate'], sell: 280, pref: 225, cost: 170 },
+    { name: 'Stanoject 50 (Winstrol Inj)', keywords: ['stanoject', 'winstrol inj', 'winny inj', 'stanozolol inj'], sell: 280, pref: 215, cost: 150 },
+    { name: 'Sustaject (Sustanon)', keywords: ['sustaject', 'sustanon', 'sust'], sell: 380, pref: 300, cost: 220 },
+    { name: 'Testaject (Test E)', keywords: ['testaject', 'test e', 'test enanthate'], sell: 390, pref: 295, cost: 200 },
+    { name: 'Trenaject 100 (Tren Ace)', keywords: ['trenaject 100', 'tren ace', 'tren acetate', 'trenbolone acetate'], sell: 480, pref: 405, cost: 330 },
+    { name: 'Trenaject 200 (Tren E)', keywords: ['trenaject 200', 'tren e', 'tren enanthate', 'trenbolone enanthate'], sell: 590, pref: 510, cost: 430 },
+    { name: 'Trestolone/MENT', keywords: ['trestolone', 'ment'], sell: 950, pref: 885, cost: 820 },
+    { name: 'Trinaject (Tren Blend)', keywords: ['trinaject', 'tren blend', 'tri tren'], sell: 580, pref: 505, cost: 430 },
+    // SUPER BLACK SERIES
+    { name: 'SuperBulk 600', keywords: ['superbulk', 'super bulk'], sell: 610, pref: 525, cost: 440 },
+    { name: 'SuperCutMix 300', keywords: ['supercutmix', 'super cut', 'cutmix'], sell: 610, pref: 525, cost: 440 },
+    { name: 'SuperSize 500', keywords: ['supersize', 'super size'], sell: 610, pref: 525, cost: 440 },
+    { name: 'SuperTest 500', keywords: ['supertest', 'super test'], sell: 450, pref: 365, cost: 280 },
+    // AMPS
+    { name: 'Sustanon Amp', keywords: ['sustanon amp', 'sust amp'], sell: 35, pref: 28, cost: 20 },
+    // GH & PEPTIDES
+    { name: 'CJC-1295 with DAC', keywords: ['cjc-1295', 'cjc 1295', 'cjc'], sell: 400, pref: 340, cost: 280 },
+    { name: 'HGH Fragment 176-191', keywords: ['hgh frag', 'hgh fragment', 'fragment 176'], sell: 330, pref: 270, cost: 210 },
+    { name: 'GHRP-6', keywords: ['ghrp-6', 'ghrp 6', 'ghrp6'], sell: 290, pref: 235, cost: 180 },
+    { name: 'HCG (Pregnyl) 5000iu', keywords: ['hcg', 'pregnyl'], sell: 300, pref: 250, cost: 200 },
+    { name: 'HGH 10iu (10 vials)', keywords: ['hgh 10iu', 'hgh rdna', 'growth hormone'], sell: 2200, pref: 2100, cost: 2000 },
+    { name: 'IGF-1 Lr3 (10 vials)', keywords: ['igf-1', 'igf 1', 'igf1'], sell: 2200, pref: 2100, cost: 2000 },
+    { name: 'PT-141 (Lovers Peptide)', keywords: ['pt-141', 'pt 141', 'pt141', 'lover', 'bremelanotide'], sell: 350, pref: 315, cost: 280 },
+    { name: 'Melanotan II', keywords: ['melanotan', 'mt2', 'mt 2', 'mt-2'], sell: 280, pref: 240, cost: 200 },
+    { name: 'TB500', keywords: ['tb500', 'tb 500', 'thymosin beta'], sell: 380, pref: 330, cost: 280 },
+    { name: 'Lantus Insulin Pen', keywords: ['lantus', 'slow insulin', 'long acting insulin'], sell: 300, pref: 265, cost: 230 },
+    { name: 'Humalog Insulin Pen', keywords: ['humalog', 'fast insulin', 'short acting insulin'], sell: 270, pref: 245, cost: 220 },
+    { name: 'BPC-157 Vial', keywords: ['bpc-157', 'bpc 157', 'bpc157'], sell: 350, pref: 300, cost: 250 },
+    { name: '5Amino-1Mq', keywords: ['5amino', '5-amino', '5amino-1mq', '5amino 1mq'], sell: 500, pref: 450, cost: 400 },
+    { name: 'Mots-C', keywords: ['mots-c', 'mots c', 'motsc'], sell: 400, pref: 340, cost: 280 },
+    // SARMS
+    { name: 'Andarine S4', keywords: ['andarine', 's4', 'andarine s4'], sell: 350, pref: 295, cost: 240 },
+    { name: 'GW-501516 (Cardarine)', keywords: ['gw-501516', 'gw 501516', 'cardarine'], sell: 280, pref: 225, cost: 170 },
+    { name: 'LGD-4033 (Anabolicum)', keywords: ['lgd-4033', 'lgd 4033', 'lgd4033', 'anabolicum'], sell: 280, pref: 225, cost: 170 },
+    { name: 'MK-677 (Nutrobal)', keywords: ['mk-677', 'mk 677', 'mk677', 'nutrobal'], sell: 350, pref: 295, cost: 240 },
+    { name: 'Ostarine MK-2866', keywords: ['ostarine', 'mk-2866', 'mk 2866'], sell: 350, pref: 295, cost: 240 },
+    { name: 'RAD-140 (Testolone)', keywords: ['rad-140', 'rad 140', 'rad140', 'testolone'], sell: 280, pref: 225, cost: 170 },
+    { name: 'SR9009 (Stenabolic)', keywords: ['sr9009', 'sr 9009', 'stenabolic'], sell: 380, pref: 320, cost: 260 },
+    // OTHER
+    { name: 'DNP', keywords: ['dnp', 'dinitrophenol'], sell: 280, pref: 225, cost: 170 },
+    { name: 'SibutraMax', keywords: ['sibutramax', 'sibutramine'], sell: 360, pref: 260, cost: 160 },
+    { name: 'Metformin 1000', keywords: ['metformin', 'glucophage'], sell: 350, pref: 270, cost: 190 },
+    { name: 'Simply Shredded', keywords: ['simply shredded'], sell: 400, pref: 350, cost: 300 },
+    { name: 'Tight & Tone', keywords: ['tight & tone', 'tight and tone', 'eca stack'], sell: 350, pref: 300, cost: 250 },
+    // SUPPLEMENTS
+    { name: 'Amino Muscle (BCAA)', keywords: ['amino muscle', 'bcaa', 'eaa'], sell: 300, pref: 250, cost: 200 },
+    { name: 'Creatine', keywords: ['creatine'], sell: 280, pref: 240, cost: 200 },
+    { name: 'Vitamin D3', keywords: ['d3', 'vitamin d3', 'vitamin d'], sell: 180, pref: 135, cost: 90 },
+    { name: 'Slin Tabs (GDA)', keywords: ['slin tab', 'slin tabs', 'gda'], sell: 440, pref: 335, cost: 230 },
+    { name: 'Venom Pre Workout', keywords: ['venom', 'pre workout', 'pre-workout'], sell: 350, pref: 305, cost: 260 },
+    { name: 'ZMA', keywords: ['zma'], sell: 220, pref: 165, cost: 110 },
+    { name: 'Tudca', keywords: ['tudca'], sell: 350, pref: 325, cost: 300 },
+    // WEIGHTLOSS & BEAUTY - VIALS
+    { name: 'Semaglutide Vial 10mg', keywords: ['semaglutide vial', 'sema vial'], sell: 1200, pref: 900, cost: 600 },
+    { name: 'CagriSema', keywords: ['cagrisema', 'cagri sema'], sell: 2350, pref: 2025, cost: 1700 },
+    { name: 'Tirzepatide Vial 30mg', keywords: ['tirzepatide vial', 'tirz vial', 'tirzep vial'], sell: 1900, pref: 1500, cost: 1100 },
+    { name: 'Retatrutide Vial 32mg', keywords: ['retatrutide vial', 'reta vial'], sell: 1950, pref: 1525, cost: 1100 },
+    { name: 'GHK-CU (Copper Peptide)', keywords: ['ghk-cu', 'ghk cu', 'copper peptide'], sell: 750, pref: 650, cost: 550 },
+    // WEIGHTLOSS & BEAUTY - PENS
+    { name: 'Semaglutide Pen 10mg', keywords: ['semaglutide pen', 'sema pen'], sell: 2100, pref: 1750, cost: 1400 },
+    { name: 'Tirzepatide Pen 30mg', keywords: ['tirzepatide pen', 'tirz pen', 'tirzep pen'], sell: 3100, pref: 2700, cost: 2300 },
+    { name: 'Retatrutide Pen 32mg', keywords: ['retatrutide pen', 'reta pen'], sell: 3800, pref: 3500, cost: 3200 },
+    { name: 'TirSema Pen 44mg', keywords: ['tirsema', 'tir sema', 'tirsema pen'], sell: 2200, pref: 1900, cost: 1600 },
   ]
 };
 
@@ -116,6 +225,7 @@ function lookupItemPrice(itemLine, supplier) {
 function calcOrderPricing(itemsText, clientName, supplier) {
   if (!itemsText) return { retail: 0, cost: 0, profit: 0 };
   const sup = supplier || currentSupplier;
+  const courierFee = getCourierFee(sup);
   const rule = getClientRule(clientName, sup);
   const lines = itemsText.split('\n').map(l => l.trim()).filter(Boolean);
   let retail = 0;
@@ -133,8 +243,8 @@ function calcOrderPricing(itemsText, clientName, supplier) {
     }
   }
 
-  retail += COURIER_FEE;
-  cost += COURIER_FEE;
+  retail += courierFee;
+  cost += courierFee;
   let profit = retail - cost;
   profit = Math.round(profit * rule.profitMult);
 
@@ -458,7 +568,7 @@ function renderItemPrices(order) {
     }
   }
 
-  html += `<div class="item-line courier-line"><span>Courier</span><span class="item-price">${formatRand(COURIER_FEE)}</span></div>`;
+  html += `<div class="item-line courier-line"><span>Courier</span><span class="item-price">${formatRand(getCourierFee(currentSupplier))}</span></div>`;
   return html;
 }
 
@@ -470,7 +580,7 @@ function openNewOrder() {
   document.getElementById('orderForm').reset();
   document.getElementById('orderDate').value = new Date().toISOString().split('T')[0];
   document.getElementById('orderNumber').value = generateOrderNumber();
-  document.getElementById('courierFee').value = '150.00';
+  document.getElementById('courierFee').value = getCourierFee(currentSupplier).toFixed(2);
   document.getElementById('priceBreakdown').innerHTML = '';
   document.getElementById('orderModal').classList.add('active');
 }
@@ -591,9 +701,10 @@ function autoPrice() {
     }
   }
 
-  breakdownHtml += `<tr><td style="padding:4px;">Courier Fee</td><td style="text-align:right;padding:4px;">${formatRand(COURIER_FEE)}</td><td style="text-align:right;padding:4px;">${formatRand(COURIER_FEE)}</td><td style="text-align:right;padding:4px;">R0.00</td></tr>`;
-  totalRetail += COURIER_FEE;
-  totalCost += COURIER_FEE;
+  const courierFee = getCourierFee(currentSupplier);
+  breakdownHtml += `<tr><td style="padding:4px;">Courier Fee</td><td style="text-align:right;padding:4px;">${formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">${formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">R0.00</td></tr>`;
+  totalRetail += courierFee;
+  totalCost += courierFee;
 
   let totalProfit = totalRetail - totalCost;
 
@@ -609,7 +720,7 @@ function autoPrice() {
   document.getElementById('totalCost').value = totalRetail.toFixed(2);
   document.getElementById('totalCostPrice').value = totalCost.toFixed(2);
   document.getElementById('profit').value = totalProfit.toFixed(2);
-  document.getElementById('courierFee').value = COURIER_FEE.toFixed(2);
+  document.getElementById('courierFee').value = courierFee.toFixed(2);
   if (totalQty > 0) document.getElementById('quantity').value = totalQty;
 
   document.getElementById('priceBreakdown').innerHTML = breakdownHtml;
@@ -824,7 +935,7 @@ function importSelectedOrders() {
       orderDate: po.orderDate, clientName: po.clientName, clientPhone: po.phone,
       items: po.items, quantity: String(po.totalQty),
       totalCost: po.retail.toFixed(2), totalCostPrice: po.cost.toFixed(2),
-      profit: po.profit.toFixed(2), courierFee: COURIER_FEE.toFixed(2),
+      profit: po.profit.toFixed(2), courierFee: getCourierFee(currentSupplier).toFixed(2),
       priceTier: po.tier || 'standard', profitMult: String(po.profitMult || 1),
       paymentStatus: 'Pending', orderStatus: po.tracking ? 'Dispatched' : 'Sent',
       trackingNumber: po.tracking || '', deliveryAddress: po.address,
