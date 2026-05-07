@@ -17,6 +17,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
+db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
 // ---- App State ----
 const SUPPLIERS = ['Muscle Mecca', 'HD Labs', 'Elev8'];
@@ -343,11 +344,15 @@ function showUserInfo(user) {
   userInfo.style.display = 'flex';
 }
 
+let loadingTimeout = null;
 function showLoading() {
   document.getElementById('loadingOverlay').style.display = 'flex';
+  clearTimeout(loadingTimeout);
+  loadingTimeout = setTimeout(() => hideLoading(), 10000);
 }
 
 function hideLoading() {
+  clearTimeout(loadingTimeout);
   document.getElementById('loadingOverlay').style.display = 'none';
 }
 
