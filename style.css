@@ -1568,3 +1568,269 @@ td.address-cell:hover {
     flex: 1;
   }
 }
+
+/* ============ Price List & Quote Modal ============ */
+
+.modal-pricelist {
+  max-width: 1100px;
+  width: 95vw;
+}
+
+.pl-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.pl-pricing-toggle {
+  display: flex;
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.pl-tier-btn {
+  padding: 8px 18px;
+  border: none;
+  background: transparent;
+  color: #8b949e;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pl-tier-btn.active {
+  background: linear-gradient(135deg, #e94560, #c73650);
+  color: #fff;
+}
+
+.pl-tier-btn:hover:not(.active) {
+  background: rgba(255,255,255,0.06);
+  color: #c9d1d9;
+}
+
+.pl-search {
+  flex: 1;
+  min-width: 200px;
+}
+
+.pl-panels {
+  display: flex;
+  gap: 20px;
+  min-height: 400px;
+}
+
+.pl-product-panel {
+  flex: 1.5;
+  overflow-y: auto;
+  max-height: 500px;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.15);
+}
+
+.pl-quote-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  background: rgba(0,0,0,0.15);
+  padding: 16px;
+}
+
+.pl-quote-panel h3 {
+  font-size: 0.95rem;
+  margin-bottom: 12px;
+  color: #f0f4f8;
+}
+
+.pl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.pl-table thead {
+  position: sticky;
+  top: 0;
+  background: #0d0f17;
+  z-index: 1;
+}
+
+.pl-table th {
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #8b949e;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.pl-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: #c9d1d9;
+}
+
+.pl-table tr:hover {
+  background: rgba(233, 69, 96, 0.04);
+}
+
+.pl-table .pl-price-active {
+  color: #34d399;
+  font-weight: 700;
+}
+
+.pl-table .pl-add-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(5, 150, 105, 0.3);
+  background: rgba(5, 150, 105, 0.1);
+  color: #34d399;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.pl-table .pl-add-btn:hover {
+  background: rgba(5, 150, 105, 0.25);
+  border-color: #34d399;
+}
+
+.pl-quote-items {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.pl-quote-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 0.83rem;
+}
+
+.pl-quote-item-name {
+  flex: 1;
+  color: #c9d1d9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-quote-item-qty {
+  width: 50px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.04);
+  color: #f0f4f8;
+  text-align: center;
+  font-size: 0.82rem;
+}
+
+.pl-quote-item-price {
+  color: #34d399;
+  font-weight: 600;
+  min-width: 70px;
+  text-align: right;
+}
+
+.pl-quote-item-remove {
+  background: none;
+  border: none;
+  color: #e94560;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.pl-quote-item-remove:hover {
+  background: rgba(233, 69, 96, 0.15);
+}
+
+.pl-quote-summary {
+  padding: 12px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.85rem;
+  color: #c9d1d9;
+}
+
+.pl-quote-summary .pl-quote-total {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #34d399;
+  margin-top: 6px;
+}
+
+.pl-quote-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.pl-quote-empty {
+  color: #555;
+  font-size: 0.83rem;
+  font-style: italic;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.pl-editable {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.pl-editable:hover {
+  background: rgba(255,255,255,0.06);
+}
+
+.pl-price-input {
+  width: 80px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid rgba(233, 69, 96, 0.4);
+  background: rgba(0,0,0,0.3);
+  color: #f0f4f8;
+  font-size: 0.83rem;
+  text-align: right;
+  outline: none;
+}
+
+.pl-price-input:focus {
+  border-color: #e94560;
+  box-shadow: 0 0 0 2px rgba(233, 69, 96, 0.15);
+}
+
+@media (max-width: 768px) {
+  .pl-panels {
+    flex-direction: column;
+  }
+  .pl-product-panel {
+    max-height: 300px;
+  }
+  .pl-quote-panel {
+    min-height: 200px;
+  }
+  .modal-pricelist {
+    width: 98vw;
+  }
+}

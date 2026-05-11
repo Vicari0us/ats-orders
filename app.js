@@ -33,6 +33,9 @@ let currentUser = null;
 let ordersCache = {};
 let paymentsCache = {};
 let dashboardActive = false;
+let quoteItems = [];
+let quoteTier = 'standard';
+let priceOverrides = {};
 
 // ---- Price List (sell = standard retail, pref = preferential, cost = cost price) ----
 
@@ -893,14 +896,28 @@ function lookupItemPrice(itemLine, supplier) {
 
   let bestMatch = null;
   let bestScore = 0;
+  let bestIdx = -1;
 
-  for (const entry of priceList) {
+  for (let i = 0; i < priceList.length; i++) {
+    const entry = priceList[i];
     for (const kw of entry.keywords) {
       if (product.includes(kw) || kw.split(' ').every(w => product.includes(w))) {
         const score = kw.length;
-        if (score > bestScore) { bestScore = score; bestMatch = entry; }
+        if (score > bestScore) { bestScore = score; bestMatch = entry; bestIdx = i; }
       }
     }
+  }
+  if (!bestMatch) return null;
+
+  // Apply price overrides if any
+  const overrides = (priceOverrides[supplier] || {})[bestIdx];
+  if (overrides) {
+    return {
+      ...bestMatch,
+      sell: overrides.sell !== undefined ? overrides.sell : bestMatch.sell,
+      pref: overrides.pref !== undefined ? overrides.pref : bestMatch.pref,
+      cost: overrides.cost !== undefined ? overrides.cost : bestMatch.cost
+    };
   }
   return bestMatch;
 }
@@ -1175,7 +1192,7 @@ async function switchSupplier(supplier) {
 
   showLoading();
   try {
-    await loadOrders(supplier);
+    await Promise.all([loadOrders(supplier), loadPriceOverrides(supplier)]);
   } catch (err) {
     console.error('Error loading orders:', err);
   }
@@ -2386,7 +2403,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         await seedInitialData();
         await seedHDLabsOrdersV2();
-        await loadOrders(currentSupplier);
+        await Promise.all([loadOrders(currentSupplier), loadPriceOverrides(currentSupplier)]);
       } catch (err) {
         console.error('Error loading data:', err);
       }
@@ -2407,3 +2424,236 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+// ============================================================
+// Price List & Quote Builder
+// ============================================================
+
+function openPriceListModal() {
+  document.getElementById('plSupplierName').textContent = currentSupplier;
+  document.getElementById('priceListModal').classList.add('active');
+  quoteTier = 'standard';
+  document.getElementById('plTierStandard').classList.add('active');
+  document.getElementById('plTierPref').classList.remove('active');
+  document.getElementById('plSearchBox').value = '';
+  renderPriceListTable();
+  renderQuote();
+}
+
+function closePriceListModal() {
+  document.getElementById('priceListModal').classList.remove('active');
+}
+
+function setPriceTier(tier) {
+  quoteTier = tier;
+  document.getElementById('plTierStandard').classList.toggle('active', tier === 'standard');
+  document.getElementById('plTierPref').classList.toggle('active', tier === 'preferential');
+  renderPriceListTable();
+  renderQuote();
+}
+
+function getProductPrice(supplier, idx, field) {
+  const overrides = (priceOverrides[supplier] || {})[idx];
+  if (overrides && overrides[field] !== undefined) return overrides[field];
+  const p = (PRICE_LISTS[supplier] || [])[idx];
+  return p ? p[field] : 0;
+}
+
+function renderPriceListTable() {
+  const products = PRICE_LISTS[currentSupplier] || [];
+  const search = (document.getElementById('plSearchBox').value || '').toLowerCase().trim();
+  const tbody = document.getElementById('plTableBody');
+  let html = '';
+  products.forEach((p, idx) => {
+    if (search && !p.name.toLowerCase().includes(search) && !(p.keywords || []).some(k => k.includes(search))) return;
+    const sell = getProductPrice(currentSupplier, idx, 'sell');
+    const pref = getProductPrice(currentSupplier, idx, 'pref');
+    const cost = getProductPrice(currentSupplier, idx, 'cost');
+    const sellClass = quoteTier === 'standard' ? ' pl-price-active' : '';
+    const prefClass = quoteTier === 'preferential' ? ' pl-price-active' : '';
+    html += `<tr>
+      <td><button class="pl-add-btn" onclick="addToQuote(${idx})" title="Add to quote">+</button></td>
+      <td>${esc(p.name)}</td>
+      <td class="pl-editable${sellClass}" onclick="editPrice(${idx},'sell',this)">${formatRand(sell)}</td>
+      <td class="pl-editable${prefClass}" onclick="editPrice(${idx},'pref',this)">${formatRand(pref)}</td>
+      <td class="pl-editable" onclick="editPrice(${idx},'cost',this)">${cost ? formatRand(cost) : '-'}</td>
+    </tr>`;
+  });
+  if (!html) html = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#555;">No products found</td></tr>';
+  tbody.innerHTML = html;
+}
+
+function filterPriceList() {
+  renderPriceListTable();
+}
+
+function addToQuote(idx) {
+  const products = PRICE_LISTS[currentSupplier] || [];
+  const product = products[idx];
+  if (!product) return;
+  const existing = quoteItems.find(q => q.idx === idx);
+  if (existing) {
+    existing.qty++;
+  } else {
+    quoteItems.push({ idx, name: product.name, qty: 1 });
+  }
+  renderQuote();
+}
+
+function removeFromQuote(i) {
+  quoteItems.splice(i, 1);
+  renderQuote();
+}
+
+function updateQuoteQty(i, qty) {
+  const n = parseInt(qty) || 0;
+  if (n <= 0) {
+    quoteItems.splice(i, 1);
+  } else {
+    quoteItems[i].qty = n;
+  }
+  renderQuote();
+}
+
+function renderQuote() {
+  const itemsEl = document.getElementById('plQuoteItems');
+  const summaryEl = document.getElementById('plQuoteSummary');
+  const products = PRICE_LISTS[currentSupplier] || [];
+
+  if (quoteItems.length === 0) {
+    itemsEl.innerHTML = '<div class="pl-quote-empty">Click + to add products to your quote</div>';
+    summaryEl.innerHTML = '';
+    return;
+  }
+
+  let html = '';
+  let subtotal = 0;
+  quoteItems.forEach((item, i) => {
+    const sell = getProductPrice(currentSupplier, item.idx, 'sell');
+    const pref = getProductPrice(currentSupplier, item.idx, 'pref');
+    const price = quoteTier === 'preferential' ? (pref || sell) : sell;
+    const lineTotal = price * item.qty;
+    subtotal += lineTotal;
+    html += `<div class="pl-quote-item">
+      <span class="pl-quote-item-name" title="${esc(item.name)}">${esc(item.name)}</span>
+      <input type="number" class="pl-quote-item-qty" value="${item.qty}" min="1" onchange="updateQuoteQty(${i}, this.value)">
+      <span class="pl-quote-item-price">${formatRand(lineTotal)}</span>
+      <button class="pl-quote-item-remove" onclick="removeFromQuote(${i})" title="Remove">&times;</button>
+    </div>`;
+  });
+  itemsEl.innerHTML = html;
+
+  const courier = getCourierFee(currentSupplier);
+  const total = subtotal + courier;
+  summaryEl.innerHTML = `
+    <div>Courier: ${formatRand(courier)}</div>
+    <div class="pl-quote-total">TOTAL: ${formatRand(total)}</div>
+  `;
+}
+
+function clearQuote() {
+  quoteItems = [];
+  renderQuote();
+}
+
+function copyQuoteToClipboard() {
+  if (quoteItems.length === 0) return;
+  const products = PRICE_LISTS[currentSupplier] || [];
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-ZA');
+  const tierLabel = quoteTier === 'preferential' ? 'Preferential' : 'Standard';
+  let lines = [];
+  lines.push(`ATS Quote - ${currentSupplier}`);
+  lines.push(`Date: ${dateStr}`);
+  lines.push(`Pricing: ${tierLabel}`);
+  lines.push('');
+
+  let subtotal = 0;
+  quoteItems.forEach(item => {
+    const p = products[item.idx];
+    const sell = getProductPrice(currentSupplier, item.idx, 'sell');
+    const pref = getProductPrice(currentSupplier, item.idx, 'pref');
+    const price = quoteTier === 'preferential' ? (pref || sell) : sell;
+    const lineTotal = price * item.qty;
+    subtotal += lineTotal;
+    lines.push(`${item.qty} x ${p.name}  ${formatRand(lineTotal)}`);
+  });
+
+  const courier = getCourierFee(currentSupplier);
+  const total = subtotal + courier;
+  lines.push(`Courier  ${formatRand(courier)}`);
+  lines.push('\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500');
+  lines.push(`TOTAL  ${formatRand(total)}`);
+
+  const text = lines.join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.pl-quote-actions .btn-primary');
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+    setTimeout(() => { btn.innerHTML = orig; }, 2000);
+  });
+}
+
+// ---- Price editing & persistence ----
+
+function editPrice(idx, field, td) {
+  if (td.querySelector('input')) return;
+  const current = getProductPrice(currentSupplier, idx, field);
+  const orig = td.innerHTML;
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.className = 'pl-price-input';
+  input.value = current || '';
+  input.min = '0';
+  input.step = '0.01';
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+
+  function commit() {
+    const val = parseFloat(input.value) || 0;
+    savePriceOverride(currentSupplier, idx, field, val);
+    renderPriceListTable();
+    renderQuote();
+  }
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { td.innerHTML = orig; }
+  });
+}
+
+function savePriceOverride(supplier, idx, field, value) {
+  if (!priceOverrides[supplier]) priceOverrides[supplier] = {};
+  if (!priceOverrides[supplier][idx]) priceOverrides[supplier][idx] = {};
+  priceOverrides[supplier][idx][field] = value;
+  savePriceOverrides(supplier);
+}
+
+function savePriceOverrides(supplier) {
+  if (!currentUser) return;
+  const key = supplierKey(supplier) + '_prices';
+  db.collection('users').doc(currentUser.uid)
+    .collection('priceOverrides').doc(key)
+    .set(priceOverrides[supplier] || {})
+    .catch(err => console.error('Price override save error:', err));
+}
+
+async function loadPriceOverrides(supplier) {
+  if (!currentUser) return;
+  const key = supplierKey(supplier) + '_prices';
+  try {
+    const snap = await db.collection('users').doc(currentUser.uid)
+      .collection('priceOverrides').doc(key).get();
+    if (snap.exists) {
+      const data = snap.data();
+      priceOverrides[supplier] = {};
+      Object.keys(data).forEach(k => {
+        priceOverrides[supplier][k] = data[k];
+      });
+    }
+  } catch (err) {
+    console.error('Price override load error:', err);
+  }
+}

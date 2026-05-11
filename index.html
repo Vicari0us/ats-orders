@@ -145,6 +145,7 @@
         <button class="btn btn-primary" onclick="openNewOrder()"><i class="fas fa-plus"></i> New Order</button>
         <button class="btn btn-whatsapp" onclick="openImportModal()"><i class="fab fa-whatsapp"></i> Import Chat</button>
         <button class="btn btn-success" onclick="exportCSV()"><i class="fas fa-file-csv"></i> Export CSV</button>
+        <button class="btn btn-secondary" onclick="openPriceListModal()"><i class="fas fa-tags"></i> Price List</button>
       </div>
       <div class="search-wrapper">
         <i class="fas fa-search search-icon"></i>
@@ -325,6 +326,53 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="closeImportModal()"><i class="fas fa-xmark"></i> Cancel</button>
         <button class="btn btn-primary" onclick="importSelectedOrders()"><i class="fas fa-file-import"></i> Import Selected</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Price List & Quote Modal ============ -->
+  <div class="modal-overlay" id="priceListModal">
+    <div class="modal modal-pricelist">
+      <div class="modal-header">
+        <h2><i class="fas fa-tags modal-title-icon"></i>Price List - <span id="plSupplierName"></span></h2>
+        <button class="modal-close" onclick="closePriceListModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="pl-controls">
+          <div class="pl-pricing-toggle">
+            <button class="pl-tier-btn active" id="plTierStandard" onclick="setPriceTier('standard')">Standard</button>
+            <button class="pl-tier-btn" id="plTierPref" onclick="setPriceTier('preferential')">Preferential</button>
+          </div>
+          <div class="search-wrapper pl-search">
+            <i class="fas fa-search search-icon"></i>
+            <input type="text" id="plSearchBox" class="search-box" placeholder="Search products..." oninput="filterPriceList()">
+          </div>
+        </div>
+        <div class="pl-panels">
+          <div class="pl-product-panel">
+            <table class="pl-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Product</th>
+                  <th>Sell</th>
+                  <th>Pref</th>
+                  <th>Cost</th>
+                </tr>
+              </thead>
+              <tbody id="plTableBody"></tbody>
+            </table>
+          </div>
+          <div class="pl-quote-panel">
+            <h3><i class="fas fa-file-invoice"></i> Quote Builder</h3>
+            <div id="plQuoteItems" class="pl-quote-items"></div>
+            <div class="pl-quote-summary" id="plQuoteSummary"></div>
+            <div class="pl-quote-actions">
+              <button class="btn btn-primary btn-sm" onclick="copyQuoteToClipboard()"><i class="fas fa-copy"></i> Copy Quote</button>
+              <button class="btn btn-secondary btn-sm" onclick="clearQuote()"><i class="fas fa-trash"></i> Clear</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
