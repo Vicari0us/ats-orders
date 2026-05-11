@@ -57,6 +57,14 @@
 
   <div class="container">
 
+    <!-- Missing Prices Alert -->
+    <div class="alert-banner" id="missingPricesAlert" style="display:none;">
+      <div class="alert-banner-content">
+        <i class="fas fa-triangle-exclamation"></i>
+        <span id="missingPricesText"></span>
+      </div>
+    </div>
+
     <!-- Summary Cards -->
     <div class="summary-cards" id="ordersCards">
       <div class="summary-card card-orders">
@@ -108,6 +116,26 @@
           <div class="label">Active Orders</div>
           <div class="value" id="activeOrders">0</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Supplier Payment Bar -->
+    <div class="supplier-payment-bar" id="supplierPaymentBar" style="display:none;">
+      <div class="spb-item">
+        <span class="spb-label">Week Cost</span>
+        <span class="spb-value" id="spbWeekCost">R0.00</span>
+      </div>
+      <div class="spb-item">
+        <span class="spb-label">Paid</span>
+        <span class="spb-value spb-paid" id="spbPaid">R0.00</span>
+      </div>
+      <div class="spb-item">
+        <span class="spb-label">Balance</span>
+        <span class="spb-value spb-balance" id="spbBalance">R0.00</span>
+      </div>
+      <div class="spb-input-group">
+        <input type="number" id="spbPaymentInput" min="0" step="0.01" placeholder="Amount...">
+        <button class="btn btn-success btn-sm" onclick="recordSupplierPayment()"><i class="fas fa-check"></i> Record Payment</button>
       </div>
     </div>
 
@@ -285,7 +313,7 @@
       </div>
       <div class="modal-body">
         <p style="margin-bottom:12px; color:#555; font-size:0.9rem;">
-          Paste the WhatsApp chat below. The parser will detect orders (items, client name, phone, address), tracking numbers, and auto-calculate prices including R150 courier fee.
+          Paste a WhatsApp chat or plain-text order below. The parser will detect orders (items, client name, phone, address), tracking numbers, and auto-calculate prices including R150 courier fee.
         </p>
         <textarea id="chatInput" placeholder="[08:50, 04/05/2026] Leo: 2 x iPharma Reta Pens&#10;&#10;Arnav&#10;+27 78 581 8788&#10;&#10;87 South Avenue, Atholl, 2196"></textarea>
         <div class="parse-actions">
