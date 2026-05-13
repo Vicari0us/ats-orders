@@ -848,7 +848,7 @@ const PRICE_LISTS = {
 const CLIENT_RULES = {
   'Muscle Mecca': {
     preferential: ['tiaan kruger', 'matthew de beer', 'nicole billson'],
-    profitAdjust: { 'leo kruger': 0.7 },
+    profitAdjust: { 'leo kruger': 0, 'leo': 0 },
     priceOverrides: {
       'warren van niekerk': [
         { keywords: ['reta pen', 'reta pens', 'ipharma reta', '30mg pen', '30mg pens'], sell: 2200 }
@@ -857,11 +857,11 @@ const CLIENT_RULES = {
   },
   'HD Labs': {
     preferential: [],
-    profitAdjust: { 'leo kruger': 0.7, 'leo': 0.7 },
+    profitAdjust: { 'leo kruger': 0, 'leo': 0 },
     priceOverrides: {}
   },
-  'Elev8': { preferential: [], profitAdjust: {}, priceOverrides: {} },
-  'Stock': { preferential: [], profitAdjust: {}, priceOverrides: {} }
+  'Elev8': { preferential: [], profitAdjust: { 'leo kruger': 0, 'leo': 0 }, priceOverrides: {} },
+  'Stock': { preferential: [], profitAdjust: { 'leo kruger': 0, 'leo': 0 }, priceOverrides: {} }
 };
 
 function getClientRule(clientName, supplier) {
@@ -870,7 +870,7 @@ function getClientRule(clientName, supplier) {
 
   const name = clientName.toLowerCase().trim();
   const isPref = rules.preferential.some(p => name === p);
-  const profitMult = rules.profitAdjust[name] || 1;
+  const profitMult = rules.profitAdjust[name] !== undefined ? rules.profitAdjust[name] : 1;
   const overrides = (rules.priceOverrides && rules.priceOverrides[name]) || [];
 
   return { tier: isPref ? 'preferential' : 'standard', profitMult, overrides };
