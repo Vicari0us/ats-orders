@@ -23,7 +23,7 @@ db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 // ---- App State ----
 const SUPPLIERS = ['Muscle Mecca', 'HD Labs', 'Elev8', 'Stock'];
 const COURIER_FEES = { 'Muscle Mecca': 150, 'HD Labs': 120, 'Elev8': 100, 'Stock': 0 };
-function getCourierFee(supplier) { return COURIER_FEES[supplier || currentSupplier] || 150; }
+function getCourierFee(supplier) { const fee = COURIER_FEES[supplier || currentSupplier]; return fee !== undefined ? fee : 150; }
 const COURIER_FEE = 150; // legacy reference, use getCourierFee() for supplier-specific
 let currentSupplier = SUPPLIERS[0];
 let currentWeek = null;
@@ -1473,12 +1473,10 @@ function saveOrder() {
   order.priceTier = rule.tier;
   order.profitMult = String(rule.profitMult);
 
-  // Stock orders: cost is always R0, profit = full retail minus courier
+  // Stock orders: cost is always R0, profit = full retail
   if (currentSupplier === 'Stock') {
     order.totalCostPrice = '0.00';
-    const retail = parseFloat(order.totalCost) || 0;
-    const courier = parseFloat(order.courierFee) || 0;
-    order.profit = (retail - courier).toFixed(2);
+    order.profit = order.totalCost;
   }
 
   if (!order.clientName || !order.items || !order.orderDate) {
