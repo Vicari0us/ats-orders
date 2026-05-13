@@ -21,8 +21,8 @@ const db = firebase.firestore();
 db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
 // ---- App State ----
-const SUPPLIERS = ['Muscle Mecca', 'HD Labs', 'Elev8'];
-const COURIER_FEES = { 'Muscle Mecca': 150, 'HD Labs': 120, 'Elev8': 100 };
+const SUPPLIERS = ['Muscle Mecca', 'HD Labs', 'Elev8', 'Stock'];
+const COURIER_FEES = { 'Muscle Mecca': 150, 'HD Labs': 120, 'Elev8': 100, 'Stock': 0 };
 function getCourierFee(supplier) { return COURIER_FEES[supplier || currentSupplier] || 150; }
 const COURIER_FEE = 150; // legacy reference, use getCourierFee() for supplier-specific
 let currentSupplier = SUPPLIERS[0];
@@ -33,6 +33,7 @@ let currentUser = null;
 let ordersCache = {};
 let paymentsCache = {};
 let dashboardActive = false;
+let stockActive = false;
 let quoteItems = [];
 let quoteTier = 'standard';
 let priceOverrides = {};
@@ -838,7 +839,8 @@ const PRICE_LISTS = {
     { name: 'PEG MGF 2mg', keywords: ['peg mgf', 'pegmgf'], sell: 750, pref: 575, cost: 400 },
     { name: 'AOD-9604 5mg', keywords: ['aod-9604', 'aod 9604', 'aod9604'], sell: 750, pref: 600, cost: 450 },
     { name: 'BAM-15 Tabs (30 tabs)', keywords: ['bam-15', 'bam 15', 'bam15'], sell: 1250, pref: 1050, cost: 850 },
-  ]
+  ],
+  'Stock': []
 };
 
 // ---- Client pricing rules ----
@@ -857,7 +859,9 @@ const CLIENT_RULES = {
     preferential: [],
     profitAdjust: { 'leo kruger': 0.7, 'leo': 0.7 },
     priceOverrides: {}
-  }
+  },
+  'Elev8': { preferential: [], profitAdjust: {}, priceOverrides: {} },
+  'Stock': { preferential: [], profitAdjust: {}, priceOverrides: {} }
 };
 
 function getClientRule(clientName, supplier) {
@@ -925,6 +929,7 @@ function lookupItemPrice(itemLine, supplier) {
 function calcOrderPricing(itemsText, clientName, supplier) {
   if (!itemsText) return { retail: 0, cost: 0, profit: 0 };
   const sup = supplier || currentSupplier;
+  const isStock = sup === 'Stock';
   const courierFee = getCourierFee(sup);
   const rule = getClientRule(clientName, sup);
   const lines = itemsText.split('\n').map(l => l.trim()).filter(Boolean);
@@ -934,17 +939,17 @@ function calcOrderPricing(itemsText, clientName, supplier) {
   for (const line of lines) {
     const qtyMatch = line.match(/^(\d+)\s*[x×]\s*/i);
     const qty = qtyMatch ? parseInt(qtyMatch[1]) : 0;
-    const match = lookupItemPrice(line, sup);
+    const match = isStock ? lookupItemPriceAcrossSuppliers(line) : lookupItemPrice(line, sup);
     if (match && qty) {
-      const override = getOverridePrice(line, rule.overrides);
+      const override = isStock ? null : getOverridePrice(line, rule.overrides);
       const unitSell = override !== null ? override : (rule.tier === 'preferential' ? match.pref : match.sell);
       retail += qty * unitSell;
-      cost += qty * match.cost;
+      if (!isStock) cost += qty * match.cost;
     }
   }
 
   retail += courierFee;
-  cost += courierFee;
+  if (!isStock) cost += courierFee;
   let profit = retail - cost;
   profit = Math.round(profit * rule.profitMult);
 
@@ -1064,7 +1069,7 @@ function generateId() {
 }
 
 function generateOrderNumber() {
-  const prefix = currentSupplier.split(' ').map(w => w[0]).join('').toUpperCase();
+  const prefix = currentSupplier === 'Stock' ? 'STK' : currentSupplier.split(' ').map(w => w[0]).join('').toUpperCase();
   const orders = getOrders(currentSupplier);
   let max = 0;
   orders.forEach(o => {
@@ -1184,10 +1189,15 @@ function togglePayment(orderId) {
 // ---- Supplier tabs ----
 
 async function switchSupplier(supplier) {
+  stockActive = false;
   currentSupplier = supplier;
   document.querySelectorAll('.supplier-tabs button').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.supplier === supplier);
   });
+  document.getElementById('navOrders').classList.add('active');
+  document.getElementById('navStock').classList.remove('active');
+  document.getElementById('navDashboard').classList.remove('active');
+  document.getElementById('supplierTabs').style.display = 'flex';
   currentWeek = null;
 
   showLoading();
@@ -1231,10 +1241,11 @@ function renderSummary() {
   document.getElementById('totalOutstanding').textContent = formatRand(outstanding);
   document.getElementById('activeOrders').textContent = activeOrders;
 
-  // Missing prices alert
+  // Missing prices alert (Stock orders: cost=R0 is intentional, only check retail)
+  const isStock = currentSupplier === 'Stock';
   const missingPrices = orders.filter(o =>
     o.orderStatus !== 'Cancelled' &&
-    (!(parseFloat(o.totalCost) > 0) || !(parseFloat(o.totalCostPrice) > 0))
+    (!(parseFloat(o.totalCost) > 0) || (!isStock && !(parseFloat(o.totalCostPrice) > 0)))
   );
   const alertEl = document.getElementById('missingPricesAlert');
   if (missingPrices.length > 0) {
@@ -1251,9 +1262,11 @@ function renderSummary() {
     alertEl.style.display = 'none';
   }
 
-  // Supplier payment bar
+  // Supplier payment bar (hidden for Stock — no supplier to pay)
   const bar = document.getElementById('supplierPaymentBar');
-  if (currentWeek) {
+  if (currentSupplier === 'Stock') {
+    bar.style.display = 'none';
+  } else if (currentWeek) {
     bar.style.display = 'flex';
     const payment = getSupplierPayment(currentSupplier, currentWeek);
     const paid = payment ? parseFloat(payment.amount) || 0 : 0;
@@ -1345,23 +1358,33 @@ function esc(str) {
   return d.innerHTML;
 }
 
+function lookupItemPriceAcrossSuppliers(itemLine) {
+  for (const sup of SUPPLIERS) {
+    if (sup === 'Stock') continue;
+    const match = lookupItemPrice(itemLine, sup);
+    if (match) return match;
+  }
+  return null;
+}
+
 function renderItemPrices(order) {
   const lines = (order.items || '').split('\n').map(l => l.trim()).filter(Boolean);
   const tier = order.priceTier || 'standard';
   const rule = getClientRule(order.clientName, currentSupplier);
+  const isStock = currentSupplier === 'Stock';
   let html = '';
   let sumRetail = 0, sumCost = 0, sumProfit = 0;
 
   for (const line of lines) {
     const qtyMatch = line.match(/^(\d+)\s*[x×]\s*/i);
     const qty = qtyMatch ? parseInt(qtyMatch[1]) : 0;
-    const match = lookupItemPrice(line, currentSupplier);
+    const match = isStock ? lookupItemPriceAcrossSuppliers(line) : lookupItemPrice(line, currentSupplier);
 
     if (match && qty) {
-      const override = getOverridePrice(line, rule.overrides);
+      const override = isStock ? null : getOverridePrice(line, rule.overrides);
       const unit = override !== null ? override : (tier === 'preferential' ? match.pref : match.sell);
       const lineRetail = qty * unit;
-      const lineCost = qty * match.cost;
+      const lineCost = isStock ? 0 : qty * match.cost;
       const lineProfit = lineRetail - lineCost;
       sumRetail += lineRetail; sumCost += lineCost; sumProfit += lineProfit;
       const isOverride = override !== null;
@@ -1450,6 +1473,14 @@ function saveOrder() {
   order.priceTier = rule.tier;
   order.profitMult = String(rule.profitMult);
 
+  // Stock orders: cost is always R0, profit = full retail minus courier
+  if (currentSupplier === 'Stock') {
+    order.totalCostPrice = '0.00';
+    const retail = parseFloat(order.totalCost) || 0;
+    const courier = parseFloat(order.courierFee) || 0;
+    order.profit = (retail - courier).toFixed(2);
+  }
+
   if (!order.clientName || !order.items || !order.orderDate) {
     alert('Please fill in at least: Client Name, Items, and Order Date.');
     return;
@@ -1504,16 +1535,17 @@ function autoPrice() {
     breakdownHtml = `<div style="margin-bottom:6px;"><span class="badge badge-pref">${Math.round(rule.profitMult * 100)}% PROFIT</span> for ${esc(clientName)}</div>` + breakdownHtml;
   }
 
+  const isStock = currentSupplier === 'Stock';
   for (const line of lines) {
     const qtyMatch = line.match(/^(\d+)\s*[x×]\s*/i);
     const qty = qtyMatch ? parseInt(qtyMatch[1]) : 0;
-    const match = lookupItemPrice(line, currentSupplier);
+    const match = isStock ? lookupItemPriceAcrossSuppliers(line) : lookupItemPrice(line, currentSupplier);
 
     if (match && qty) {
-      const override = getOverridePrice(line, rule.overrides);
+      const override = isStock ? null : getOverridePrice(line, rule.overrides);
       const unitSell = override !== null ? override : (rule.tier === 'preferential' ? match.pref : match.sell);
       const lineRetail = qty * unitSell;
-      const lineCost = qty * match.cost;
+      const lineCost = isStock ? 0 : qty * match.cost;
       const lineProfit = lineRetail - lineCost;
       totalRetail += lineRetail;
       totalCost += lineCost;
@@ -1528,9 +1560,9 @@ function autoPrice() {
   }
 
   const courierFee = getCourierFee(currentSupplier);
-  breakdownHtml += `<tr><td style="padding:4px;">Courier Fee</td><td style="text-align:right;padding:4px;">${formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">${formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">R0.00</td></tr>`;
+  breakdownHtml += `<tr><td style="padding:4px;">Courier Fee</td><td style="text-align:right;padding:4px;">${formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">${isStock ? formatRand(0) : formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">R0.00</td></tr>`;
   totalRetail += courierFee;
-  totalCost += courierFee;
+  if (!isStock) totalCost += courierFee;
 
   let totalProfit = totalRetail - totalCost;
 
@@ -1818,13 +1850,15 @@ function importSelectedOrders() {
 
 // ---- Dashboard ----
 
-const SUPPLIER_COLORS = { 'Muscle Mecca': '#e94560', 'HD Labs': '#60a5fa', 'Elev8': '#34d399' };
+const SUPPLIER_COLORS = { 'Muscle Mecca': '#e94560', 'HD Labs': '#60a5fa', 'Elev8': '#34d399', 'Stock': '#a78bfa' };
 
 async function openDashboard() {
   if (dashboardActive) return;
+  if (stockActive) closeStock();
   dashboardActive = true;
   document.getElementById('navOrders').classList.remove('active');
   document.getElementById('navDashboard').classList.add('active');
+  document.getElementById('navStock').classList.remove('active');
 
   showLoading();
   try {
@@ -1846,10 +1880,12 @@ async function openDashboard() {
 }
 
 function closeDashboard() {
+  if (stockActive) { closeStock(); return; }
   if (!dashboardActive) return;
   dashboardActive = false;
   document.getElementById('navDashboard').classList.remove('active');
   document.getElementById('navOrders').classList.add('active');
+  document.getElementById('navStock').classList.remove('active');
 
   document.getElementById('dashboardView').style.display = 'none';
   document.getElementById('supplierTabs').style.display = 'flex';
@@ -1858,6 +1894,71 @@ function closeDashboard() {
   document.getElementById('ordersActions').style.display = '';
   document.getElementById('ordersContent').style.display = '';
 
+  // Restore to a non-Stock supplier if we were on Stock before dashboard
+  if (currentSupplier === 'Stock') {
+    currentSupplier = SUPPLIERS[0];
+    document.querySelectorAll('.supplier-tabs button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.supplier === currentSupplier);
+    });
+  }
+
+  renderWeekTabs();
+  renderOrders();
+  renderSummary();
+}
+
+async function openStock() {
+  if (stockActive) return;
+  if (dashboardActive) {
+    dashboardActive = false;
+    document.getElementById('dashboardView').style.display = 'none';
+  }
+  stockActive = true;
+  currentSupplier = 'Stock';
+  currentWeek = null;
+
+  document.getElementById('navOrders').classList.remove('active');
+  document.getElementById('navDashboard').classList.remove('active');
+  document.getElementById('navStock').classList.add('active');
+
+  // Hide supplier tabs, show orders UI
+  document.getElementById('supplierTabs').style.display = 'none';
+  document.getElementById('weekTabs').style.display = 'flex';
+  document.getElementById('ordersCards').style.display = '';
+  document.getElementById('ordersActions').style.display = '';
+  document.getElementById('ordersContent').style.display = '';
+
+  showLoading();
+  try {
+    await loadOrders('Stock');
+  } catch (err) {
+    console.error('Error loading stock orders:', err);
+  }
+  hideLoading();
+
+  const weeks = getAvailableWeeks('Stock');
+  if (weeks.length > 0) currentWeek = weeks[weeks.length - 1];
+  renderWeekTabs();
+  renderOrders();
+  renderSummary();
+}
+
+function closeStock() {
+  if (!stockActive) return;
+  stockActive = false;
+  document.getElementById('navStock').classList.remove('active');
+  document.getElementById('navOrders').classList.add('active');
+
+  // Restore supplier tabs and switch back to default supplier
+  currentSupplier = SUPPLIERS[0];
+  currentWeek = null;
+  document.getElementById('supplierTabs').style.display = 'flex';
+  document.querySelectorAll('.supplier-tabs button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.supplier === currentSupplier);
+  });
+
+  const weeks = getAvailableWeeks(currentSupplier);
+  if (weeks.length > 0) currentWeek = weeks[weeks.length - 1];
   renderWeekTabs();
   renderOrders();
   renderSummary();
@@ -2318,13 +2419,13 @@ async function seedInitialData() {
 // ---- Init (Auth-gated) ----
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Set up supplier tabs (UI only, data loads after auth)
+  // Set up supplier tabs (UI only, data loads after auth). Stock has its own nav button.
   const tabsContainer = document.getElementById('supplierTabs');
-  SUPPLIERS.forEach(supplier => {
+  SUPPLIERS.filter(s => s !== 'Stock').forEach(supplier => {
     const btn = document.createElement('button');
     btn.textContent = supplier;
     btn.dataset.supplier = supplier;
-    btn.addEventListener('click', () => switchSupplier(supplier));
+    btn.addEventListener('click', () => { if (stockActive) closeStock(); switchSupplier(supplier); });
     if (supplier === currentSupplier) btn.classList.add('active');
     tabsContainer.appendChild(btn);
   });

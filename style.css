@@ -1191,6 +1191,11 @@ td.address-cell:hover {
   box-shadow: 0 0 12px rgba(233,69,96,0.25);
 }
 
+#navStock.active {
+  background: #8b5cf6;
+  box-shadow: 0 0 12px rgba(139,92,246,0.25);
+}
+
 /* ============ Dashboard ============ */
 .dashboard-header {
   display: flex;
