@@ -2435,6 +2435,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('searchBox').addEventListener('input', renderOrders);
 
+  // Recalculate profit when retail, cost, or courier fee changes manually
+  function recalcProfit() {
+    const retail = parseFloat(document.getElementById('totalCost').value) || 0;
+    const cost = parseFloat(document.getElementById('totalCostPrice').value) || 0;
+    document.getElementById('profit').value = (retail - cost).toFixed(2);
+  }
+  ['totalCost', 'totalCostPrice', 'courierFee'].forEach(id => {
+    document.getElementById(id).addEventListener('input', recalcProfit);
+  });
+
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', (e) => {
       if (e.target === e.currentTarget) { overlay.classList.remove('active'); editingOrderId = null; parsedOrders = []; }
