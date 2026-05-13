@@ -845,10 +845,11 @@ const PRICE_LISTS = {
 
 // ---- Client pricing rules ----
 
+const LEO_PROFIT = { before: 0.7, from: 0, date: '2026-05-11' }; // week ending 2026-05-17 starts Mon 2026-05-11
 const CLIENT_RULES = {
   'Muscle Mecca': {
     preferential: ['tiaan kruger', 'matthew de beer', 'nicole billson'],
-    profitAdjust: { 'leo kruger': 0, 'leo': 0 },
+    profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT },
     priceOverrides: {
       'warren van niekerk': [
         { keywords: ['reta pen', 'reta pens', 'ipharma reta', '30mg pen', '30mg pens'], sell: 2200 }
@@ -857,20 +858,30 @@ const CLIENT_RULES = {
   },
   'HD Labs': {
     preferential: [],
-    profitAdjust: { 'leo kruger': 0, 'leo': 0 },
+    profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT },
     priceOverrides: {}
   },
-  'Elev8': { preferential: [], profitAdjust: { 'leo kruger': 0, 'leo': 0 }, priceOverrides: {} },
-  'Stock': { preferential: [], profitAdjust: { 'leo kruger': 0, 'leo': 0 }, priceOverrides: {} }
+  'Elev8': { preferential: [], profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT }, priceOverrides: {} },
+  'Stock': { preferential: [], profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT }, priceOverrides: {} }
 };
 
-function getClientRule(clientName, supplier) {
+function getClientRule(clientName, supplier, orderDate) {
   const rules = CLIENT_RULES[supplier || currentSupplier];
   if (!rules || !clientName) return { tier: 'standard', profitMult: 1, overrides: [] };
 
   const name = clientName.toLowerCase().trim();
   const isPref = rules.preferential.some(p => name === p);
-  const profitMult = rules.profitAdjust[name] !== undefined ? rules.profitAdjust[name] : 1;
+  let profitMult = 1;
+  const raw = rules.profitAdjust[name];
+  if (raw !== undefined) {
+    if (typeof raw === 'object' && raw.date) {
+      // Date-based: use 'from' value if order is on/after date, else 'before'
+      const d = orderDate || new Date().toISOString().split('T')[0];
+      profitMult = d >= raw.date ? raw.from : raw.before;
+    } else {
+      profitMult = raw;
+    }
+  }
   const overrides = (rules.priceOverrides && rules.priceOverrides[name]) || [];
 
   return { tier: isPref ? 'preferential' : 'standard', profitMult, overrides };
@@ -1324,7 +1335,7 @@ function renderOrders() {
   tbody.innerHTML = filtered.map(order => {
     const profit = parseFloat(order.profit) || 0;
     const tierBadge = order.priceTier === 'preferential' ? ' <span class="badge badge-pref">PREF</span>' : '';
-    const profitNote = parseFloat(order.profitMult) < 1 ? ' <span class="badge badge-pref">70%</span>' : '';
+    const profitNote = parseFloat(order.profitMult) < 1 ? ` <span class="badge badge-pref">${Math.round(parseFloat(order.profitMult) * 100)}%</span>` : '';
     const payIcon = paymentIcons[order.paymentStatus] || paymentIcons.Pending;
     const statIcon = statusIcons[order.orderStatus] || statusIcons.New;
     return `
@@ -1370,7 +1381,7 @@ function lookupItemPriceAcrossSuppliers(itemLine) {
 function renderItemPrices(order) {
   const lines = (order.items || '').split('\n').map(l => l.trim()).filter(Boolean);
   const tier = order.priceTier || 'standard';
-  const rule = getClientRule(order.clientName, currentSupplier);
+  const rule = getClientRule(order.clientName, currentSupplier, order.orderDate);
   const isStock = currentSupplier === 'Stock';
   let html = '';
   let sumRetail = 0, sumCost = 0, sumProfit = 0;
@@ -1469,7 +1480,7 @@ function saveOrder() {
     order[f] = el ? el.value.trim() : '';
   });
 
-  const rule = getClientRule(order.clientName);
+  const rule = getClientRule(order.clientName, currentSupplier, order.orderDate);
   order.priceTier = rule.tier;
   order.profitMult = String(rule.profitMult);
 
@@ -1516,7 +1527,8 @@ function autoPrice() {
 
   if (!itemsText.trim()) { alert('Enter items first, then click Auto-price.'); return; }
 
-  const rule = getClientRule(clientName);
+  const orderDate = document.getElementById('orderDate').value;
+  const rule = getClientRule(clientName, currentSupplier, orderDate);
   const lines = itemsText.split('\n').map(l => l.trim()).filter(Boolean);
   let totalRetail = 0;
   let totalCost = 0;
@@ -2056,7 +2068,7 @@ function computeAnalytics() {
       if (!name || /^all\s/i.test(name)) continue;
       productQty[name] = (productQty[name] || 0) + qty;
       if (match) {
-        const rule = getClientRule(o.clientName, sup);
+        const rule = getClientRule(o.clientName, sup, o.orderDate);
         const override = getOverridePrice(line, rule.overrides);
         const unitSell = override !== null ? override : (rule.tier === 'preferential' ? match.pref : match.sell);
         const unitProfit = unitSell - match.cost;
