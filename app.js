@@ -1234,9 +1234,12 @@ function renderSummary() {
     orders = orders.filter(o => o.orderDate && getWeekEnding(o.orderDate) === currentWeek);
   }
   const totalOrders = orders.length;
+  const isStockView = currentSupplier === 'Stock';
   const totalRevenue = orders.reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
   const totalCost = orders.reduce((s, o) => s + (parseFloat(o.totalCostPrice) || 0), 0);
-  const totalProfit = orders.reduce((s, o) => s + (parseFloat(o.profit) || 0), 0);
+  const totalProfit = isStockView
+    ? totalRevenue - totalCost
+    : orders.reduce((s, o) => s + (parseFloat(o.profit) || 0), 0);
   const activeOrders = orders.filter(o => !['Delivered', 'Cancelled'].includes(o.orderStatus)).length;
 
   const collected = orders.filter(o => o.paymentStatus === 'Paid').reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
@@ -1332,8 +1335,12 @@ function renderOrders() {
   const paymentIcons = { Pending: 'fa-clock', Paid: 'fa-circle-check', Partial: 'fa-circle-half-stroke' };
   const statusIcons = { New: 'fa-sparkles', Sent: 'fa-paper-plane', Dispatched: 'fa-truck', Delivered: 'fa-circle-check', Cancelled: 'fa-ban' };
 
+  const isStockView = currentSupplier === 'Stock';
   tbody.innerHTML = filtered.map(order => {
-    const profit = parseFloat(order.profit) || 0;
+    // Stock: profit = retail - cost (recalculate to fix orders saved before bug fixes)
+    const profit = isStockView
+      ? (parseFloat(order.totalCost) || 0) - (parseFloat(order.totalCostPrice) || 0)
+      : (parseFloat(order.profit) || 0);
     const tierBadge = order.priceTier === 'preferential' ? ' <span class="badge badge-pref">PREF</span>' : '';
     const profitNote = parseFloat(order.profitMult) < 1 ? ` <span class="badge badge-pref">${Math.round(parseFloat(order.profitMult) * 100)}%</span>` : '';
     const payIcon = paymentIcons[order.paymentStatus] || paymentIcons.Pending;
