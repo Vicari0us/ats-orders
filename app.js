@@ -955,12 +955,12 @@ function calcOrderPricing(itemsText, clientName, supplier) {
       const override = isStock ? null : getOverridePrice(line, rule.overrides);
       const unitSell = override !== null ? override : (rule.tier === 'preferential' ? match.pref : match.sell);
       retail += qty * unitSell;
-      if (!isStock) cost += qty * match.cost;
+      cost += qty * match.cost;
     }
   }
 
   retail += courierFee;
-  if (!isStock) cost += courierFee;
+  cost += courierFee;
   let profit = retail - cost;
   profit = Math.round(profit * rule.profitMult);
 
@@ -1234,12 +1234,9 @@ function renderSummary() {
     orders = orders.filter(o => o.orderDate && getWeekEnding(o.orderDate) === currentWeek);
   }
   const totalOrders = orders.length;
-  const isStockView = currentSupplier === 'Stock';
   const totalRevenue = orders.reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
   const totalCost = orders.reduce((s, o) => s + (parseFloat(o.totalCostPrice) || 0), 0);
-  const totalProfit = isStockView
-    ? totalRevenue - totalCost
-    : orders.reduce((s, o) => s + (parseFloat(o.profit) || 0), 0);
+  const totalProfit = orders.reduce((s, o) => s + (parseFloat(o.profit) || 0), 0);
   const activeOrders = orders.filter(o => !['Delivered', 'Cancelled'].includes(o.orderStatus)).length;
 
   const collected = orders.filter(o => o.paymentStatus === 'Paid').reduce((s, o) => s + (parseFloat(o.totalCost) || 0), 0);
@@ -1255,11 +1252,10 @@ function renderSummary() {
   document.getElementById('totalOutstanding').textContent = formatRand(outstanding);
   document.getElementById('activeOrders').textContent = activeOrders;
 
-  // Missing prices alert (Stock orders: cost=R0 is intentional, only check retail)
-  const isStock = currentSupplier === 'Stock';
+  // Missing prices alert
   const missingPrices = orders.filter(o =>
     o.orderStatus !== 'Cancelled' &&
-    (!(parseFloat(o.totalCost) > 0) || (!isStock && !(parseFloat(o.totalCostPrice) > 0)))
+    (!(parseFloat(o.totalCost) > 0) || !(parseFloat(o.totalCostPrice) > 0))
   );
   const alertEl = document.getElementById('missingPricesAlert');
   if (missingPrices.length > 0) {
@@ -1335,12 +1331,8 @@ function renderOrders() {
   const paymentIcons = { Pending: 'fa-clock', Paid: 'fa-circle-check', Partial: 'fa-circle-half-stroke' };
   const statusIcons = { New: 'fa-sparkles', Sent: 'fa-paper-plane', Dispatched: 'fa-truck', Delivered: 'fa-circle-check', Cancelled: 'fa-ban' };
 
-  const isStockView = currentSupplier === 'Stock';
   tbody.innerHTML = filtered.map(order => {
-    // Stock: profit = retail - cost (recalculate to fix orders saved before bug fixes)
-    const profit = isStockView
-      ? (parseFloat(order.totalCost) || 0) - (parseFloat(order.totalCostPrice) || 0)
-      : (parseFloat(order.profit) || 0);
+    const profit = parseFloat(order.profit) || 0;
     const tierBadge = order.priceTier === 'preferential' ? ' <span class="badge badge-pref">PREF</span>' : '';
     const profitNote = parseFloat(order.profitMult) < 1 ? ` <span class="badge badge-pref">${Math.round(parseFloat(order.profitMult) * 100)}%</span>` : '';
     const payIcon = paymentIcons[order.paymentStatus] || paymentIcons.Pending;
@@ -1402,7 +1394,7 @@ function renderItemPrices(order) {
       const override = isStock ? null : getOverridePrice(line, rule.overrides);
       const unit = override !== null ? override : (tier === 'preferential' ? match.pref : match.sell);
       const lineRetail = qty * unit;
-      const lineCost = isStock ? 0 : qty * match.cost;
+      const lineCost = qty * match.cost;
       const lineProfit = lineRetail - lineCost;
       sumRetail += lineRetail; sumCost += lineCost; sumProfit += lineProfit;
       const isOverride = override !== null;
@@ -1491,12 +1483,6 @@ function saveOrder() {
   order.priceTier = rule.tier;
   order.profitMult = String(rule.profitMult);
 
-  // Stock orders: cost is always R0, profit = full retail
-  if (currentSupplier === 'Stock') {
-    order.totalCostPrice = '0.00';
-    order.profit = order.totalCost;
-  }
-
   if (!order.clientName || !order.items || !order.orderDate) {
     alert('Please fill in at least: Client Name, Items, and Order Date.');
     return;
@@ -1562,7 +1548,7 @@ function autoPrice() {
       const override = isStock ? null : getOverridePrice(line, rule.overrides);
       const unitSell = override !== null ? override : (rule.tier === 'preferential' ? match.pref : match.sell);
       const lineRetail = qty * unitSell;
-      const lineCost = isStock ? 0 : qty * match.cost;
+      const lineCost = qty * match.cost;
       const lineProfit = lineRetail - lineCost;
       totalRetail += lineRetail;
       totalCost += lineCost;
@@ -1577,9 +1563,9 @@ function autoPrice() {
   }
 
   const courierFee = getCourierFee(currentSupplier);
-  breakdownHtml += `<tr><td style="padding:4px;">Courier Fee</td><td style="text-align:right;padding:4px;">${formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">${isStock ? formatRand(0) : formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">R0.00</td></tr>`;
+  breakdownHtml += `<tr><td style="padding:4px;">Courier Fee</td><td style="text-align:right;padding:4px;">${formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">${formatRand(courierFee)}</td><td style="text-align:right;padding:4px;">R0.00</td></tr>`;
   totalRetail += courierFee;
-  if (!isStock) totalCost += courierFee;
+  totalCost += courierFee;
 
   let totalProfit = totalRetail - totalCost;
 
