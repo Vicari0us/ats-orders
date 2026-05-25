@@ -735,6 +735,8 @@ const PRICE_LISTS = {
     { name: 'T3', keywords: ['t3', 'liothyronine'], sell: 190, pref: 135, cost: 80 },
     { name: 'Yohimbine Tabs', keywords: ['yohimbine tab', 'yohimbine oral'], sell: 220, pref: 190, cost: 160 },
     { name: 'Tamox (Tamoxifen)', keywords: ['tamox', 'tamoxifen', 'nolvadex'], sell: 190, pref: 135, cost: 80 },
+    { name: 'Telmisartan 40mg', keywords: ['telmisartan 40'], sell: 320, pref: 285, cost: 250 },
+    { name: 'Telmisartan 80mg', keywords: ['telmisartan 80'], sell: 350, pref: 315, cost: 280 },
     { name: 'Turanabol 10', keywords: ['turanabol', 'tbol', 'turinabol'], sell: 280, pref: 210, cost: 140 },
     { name: 'Winstrol 10', keywords: ['winstrol 10', 'winny 10', 'stanozolol 10'], sell: 200, pref: 140, cost: 80 },
     { name: 'Winstrol 50', keywords: ['winstrol 50', 'winny 50', 'stanozolol 50'], sell: 320, pref: 235, cost: 150 },
@@ -848,7 +850,7 @@ const PRICE_LISTS = {
 const LEO_PROFIT = { before: 0.7, from: 0, date: '2026-05-11' }; // week ending 2026-05-17 starts Mon 2026-05-11
 const CLIENT_RULES = {
   'Muscle Mecca': {
-    preferential: ['tiaan kruger', 'matthew de beer', 'nicole billson'],
+    preferential: ['tiaan kruger', 'matthew de beer', 'nicole billson', 'johann bester'],
     profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT },
     priceOverrides: {
       'warren van niekerk': [
@@ -857,12 +859,12 @@ const CLIENT_RULES = {
     }
   },
   'HD Labs': {
-    preferential: [],
+    preferential: ['tiaan kruger', 'johann bester'],
     profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT },
     priceOverrides: {}
   },
-  'Elev8': { preferential: [], profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT }, priceOverrides: {} },
-  'Stock': { preferential: [], profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT }, priceOverrides: {} }
+  'Elev8': { preferential: ['tiaan kruger', 'johann bester'], profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT }, priceOverrides: {} },
+  'Stock': { preferential: ['tiaan kruger', 'johann bester'], profitAdjust: { 'leo kruger': LEO_PROFIT, 'leo': LEO_PROFIT }, priceOverrides: {} }
 };
 
 function getClientRule(clientName, supplier, orderDate) {
@@ -1333,8 +1335,9 @@ function renderOrders() {
 
   tbody.innerHTML = filtered.map(order => {
     const profit = parseFloat(order.profit) || 0;
-    const tierBadge = order.priceTier === 'preferential' ? ' <span class="badge badge-pref">PREF</span>' : '';
-    const profitNote = parseFloat(order.profitMult) < 1 ? ` <span class="badge badge-pref">${Math.round(parseFloat(order.profitMult) * 100)}%</span>` : '';
+    const liveRule = getClientRule(order.clientName, currentSupplier, order.orderDate);
+    const tierBadge = liveRule.tier === 'preferential' ? ' <span class="badge badge-pref">PREF</span>' : '';
+    const profitNote = liveRule.profitMult < 1 ? ` <span class="badge badge-pref">${Math.round(liveRule.profitMult * 100)}%</span>` : '';
     const payIcon = paymentIcons[order.paymentStatus] || paymentIcons.Pending;
     const statIcon = statusIcons[order.orderStatus] || statusIcons.New;
     return `
