@@ -37,6 +37,7 @@ let stockActive = false;
 let quoteItems = [];
 let quoteTier = 'standard';
 let priceOverrides = {};
+let customProducts = {};
 
 // ---- Price List (sell = standard retail, pref = preferential, cost = cost price) ----
 
@@ -905,8 +906,8 @@ function getOverridePrice(itemLine, overrides) {
 // ---- Price lookup ----
 
 function lookupItemPrice(itemLine, supplier) {
-  const priceList = PRICE_LISTS[supplier];
-  if (!priceList) return null;
+  const priceList = getAllProducts(supplier);
+  if (!priceList || priceList.length === 0) return null;
 
   const product = itemLine.replace(/^\d+\s*[x×]\s*/i, '').trim().toLowerCase();
   if (!product || /^all\s/i.test(product)) return null;
@@ -1123,7 +1124,7 @@ function getAvailableWeeks(supplier) {
 }
 
 function renderWeekTabs() {
-  const container = document.getElementById('weekTabs');
+  const select = document.getElementById('weekSelect');
   const orderWeeks = getAvailableWeeks(currentSupplier);
 
   // Include currentWeek even if it has no orders yet (started via + button)
@@ -1133,29 +1134,20 @@ function renderWeekTabs() {
     weeks.sort();
   }
 
-  if (weeks.length === 0) {
-    // No weeks at all — just show the + button to start a new week
-    container.innerHTML = `<button class="week-nav week-add" onclick="startNewWeek()" title="Start new week"><i class="fas fa-plus"></i></button>`;
-    currentWeek = null;
-    return;
-  }
-
-  const currentIdx = currentWeek ? weeks.indexOf(currentWeek) : -1;
-
-  let html = '';
-  html += `<button class="week-nav" ${currentIdx <= 0 || currentWeek === null ? 'disabled style="opacity:0.3;cursor:default;"' : ''} onclick="switchWeek('${currentIdx > 0 ? weeks[currentIdx - 1] : ''}')"><i class="fas fa-chevron-left"></i></button>`;
-  html += `<button class="${currentWeek === null ? 'active' : ''}" onclick="switchWeek(null)"><i class="fas fa-layer-group" style="margin-right:5px;font-size:0.7rem;"></i>All Weeks</button>`;
-
-  weeks.forEach(w => {
+  // Build options — latest week first
+  let html = '<option value="">All Weeks</option>';
+  const reversed = [...weeks].reverse();
+  reversed.forEach(w => {
     const d = new Date(w + 'T00:00:00');
     const label = 'Week ending ' + d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    html += `<button class="${currentWeek === w ? 'active' : ''}" onclick="switchWeek('${w}')"><i class="fas fa-calendar-week" style="margin-right:5px;font-size:0.7rem;opacity:0.6;"></i>${label}</button>`;
+    html += `<option value="${w}" ${currentWeek === w ? 'selected' : ''}>${label}</option>`;
   });
 
-  html += `<button class="week-nav" ${currentIdx >= weeks.length - 1 || currentWeek === null ? 'disabled style="opacity:0.3;cursor:default;"' : ''} onclick="switchWeek('${currentIdx < weeks.length - 1 && currentIdx >= 0 ? weeks[currentIdx + 1] : ''}')"><i class="fas fa-chevron-right"></i></button>`;
-  html += `<button class="week-nav week-add" onclick="startNewWeek()" title="Start new week"><i class="fas fa-plus"></i></button>`;
+  select.innerHTML = html;
 
-  container.innerHTML = html;
+  if (weeks.length === 0) {
+    currentWeek = null;
+  }
 }
 
 function startNewWeek() {
@@ -1215,7 +1207,7 @@ async function switchSupplier(supplier) {
 
   showLoading();
   try {
-    await Promise.all([loadOrders(supplier), loadPriceOverrides(supplier)]);
+    await Promise.all([loadOrders(supplier), loadPriceOverrides(supplier), loadCustomProducts(supplier)]);
   } catch (err) {
     console.error('Error loading orders:', err);
   }
@@ -1443,6 +1435,7 @@ function openNewOrder() {
 
   document.getElementById('orderNumber').value = generateOrderNumber();
   document.getElementById('courierFee').value = getCourierFee(currentSupplier).toFixed(2);
+  document.getElementById('priceTier').value = 'standard';
   document.getElementById('priceBreakdown').innerHTML = '';
   document.getElementById('orderModal').classList.add('active');
 }
@@ -1462,6 +1455,7 @@ function openEditOrder(id) {
     if (el) el.value = order[f] || '';
   });
 
+  document.getElementById('priceTier').value = order.priceTier || 'standard';
   document.getElementById('priceBreakdown').innerHTML = '';
   document.getElementById('orderModal').classList.add('active');
 }
@@ -1483,7 +1477,7 @@ function saveOrder() {
   });
 
   const rule = getClientRule(order.clientName, currentSupplier, order.orderDate);
-  order.priceTier = rule.tier;
+  order.priceTier = document.getElementById('priceTier').value;
   order.profitMult = String(rule.profitMult);
 
   if (!order.clientName || !order.items || !order.orderDate) {
@@ -1525,6 +1519,7 @@ function autoPrice() {
 
   const orderDate = document.getElementById('orderDate').value;
   const rule = getClientRule(clientName, currentSupplier, orderDate);
+  const tier = document.getElementById('priceTier').value;
   const lines = itemsText.split('\n').map(l => l.trim()).filter(Boolean);
   let totalRetail = 0;
   let totalCost = 0;
@@ -1534,7 +1529,7 @@ function autoPrice() {
   let breakdownHtml = '<table style="width:100%; font-size:0.8rem; border-collapse:collapse;">';
   breakdownHtml += '<tr style="border-bottom:1px solid #ddd;"><th style="text-align:left;padding:4px;">Item</th><th style="text-align:right;padding:4px;">Retail</th><th style="text-align:right;padding:4px;">Cost</th><th style="text-align:right;padding:4px;">Profit</th></tr>';
 
-  if (rule.tier === 'preferential') {
+  if (tier === 'preferential') {
     breakdownHtml = `<div style="margin-bottom:6px;"><span class="badge badge-pref">PREFERENTIAL RATE</span> for ${esc(clientName)}</div>` + breakdownHtml;
   }
   if (rule.profitMult < 1) {
@@ -1549,7 +1544,7 @@ function autoPrice() {
 
     if (match && qty) {
       const override = isStock ? null : getOverridePrice(line, rule.overrides);
-      const unitSell = override !== null ? override : (rule.tier === 'preferential' ? match.pref : match.sell);
+      const unitSell = override !== null ? override : (tier === 'preferential' ? match.pref : match.sell);
       const lineRetail = qty * unitSell;
       const lineCost = qty * match.cost;
       const lineProfit = lineRetail - lineCost;
@@ -2367,7 +2362,8 @@ async function seedInitialData() {
   const snap = await db.collection('users').doc(currentUser.uid)
     .collection('suppliers').doc(key).get();
 
-  if (!snap.exists) {
+  const existingOrders = snap.exists ? (snap.data().orders || []) : [];
+  if (!snap.exists || existingOrders.length === 0) {
   const orders = [
     makeOrder('MM-0001', '2026-05-04', 'Arnav', '+27 78 581 8788',
       '2 x iPharma Reta Pens', 2, 5350, 3590, 1760, 'standard', 1,
@@ -2422,6 +2418,29 @@ async function seedInitialData() {
 
 }
 
+// Diagnostic: call window.diagnoseData() in browser console to check Firestore state
+window.diagnoseData = async function() {
+  if (!currentUser) { console.log('Not signed in'); return; }
+  console.log('User UID:', currentUser.uid);
+  for (const supplier of SUPPLIERS) {
+    const key = supplierKey(supplier);
+    const snap = await db.collection('users').doc(currentUser.uid)
+      .collection('suppliers').doc(key).get();
+    if (snap.exists) {
+      const data = snap.data();
+      const orderCount = (data.orders || []).length;
+      console.log(`${supplier}: document EXISTS, ${orderCount} orders, payments: ${JSON.stringify(data.payments || {})}`);
+      if (orderCount > 0) {
+        console.log(`  First order: ${JSON.stringify(data.orders[0])}`);
+        console.log(`  Last order: ${JSON.stringify(data.orders[orderCount - 1])}`);
+      }
+    } else {
+      console.log(`${supplier}: document DOES NOT EXIST`);
+    }
+  }
+  console.log('ordersCache:', Object.keys(ordersCache).map(k => `${k}: ${ordersCache[k].length} orders`));
+};
+
 // ---- Init (Auth-gated) ----
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -2448,6 +2467,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById(id).addEventListener('input', recalcProfit);
   });
 
+  // Auto-detect price tier when client name changes
+  document.getElementById('clientName').addEventListener('input', () => {
+    const name = document.getElementById('clientName').value.trim();
+    const orderDate = document.getElementById('orderDate').value;
+    const rule = getClientRule(name, currentSupplier, orderDate);
+    document.getElementById('priceTier').value = rule.tier;
+  });
+
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', (e) => {
       if (e.target === e.currentTarget) { overlay.classList.remove('active'); editingOrderId = null; parsedOrders = []; }
@@ -2460,9 +2487,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // One-time HD Labs order reseed
   async function seedHDLabsOrdersV2() {
-    if (localStorage.getItem('hdlabs_seed_v2')) return;
     const supplier = 'HD Labs';
     await loadOrders(supplier);
+    // Skip if already seeded AND data still exists
+    if (localStorage.getItem('hdlabs_seed_v2') && (ordersCache[supplier] || []).length > 0) return;
 
     const seedOrders = [
       { orderDate: '2026-04-28', clientName: 'Leo Kruger', clientPhone: '0826527825',
@@ -2520,7 +2548,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         await seedInitialData();
         await seedHDLabsOrdersV2();
-        await Promise.all([loadOrders(currentSupplier), loadPriceOverrides(currentSupplier)]);
+        await Promise.all([loadOrders(currentSupplier), loadPriceOverrides(currentSupplier), loadCustomProducts(currentSupplier)]);
       } catch (err) {
         console.error('Error loading data:', err);
       }
@@ -2572,12 +2600,13 @@ function setPriceTier(tier) {
 function getProductPrice(supplier, idx, field) {
   const overrides = (priceOverrides[supplier] || {})[idx];
   if (overrides && overrides[field] !== undefined) return overrides[field];
-  const p = (PRICE_LISTS[supplier] || [])[idx];
+  const p = getAllProducts(supplier)[idx];
   return p ? p[field] : 0;
 }
 
 function renderPriceListTable() {
-  const products = PRICE_LISTS[currentSupplier] || [];
+  const products = getAllProducts(currentSupplier);
+  const baseLen = (PRICE_LISTS[currentSupplier] || []).length;
   const search = (document.getElementById('plSearchBox').value || '').toLowerCase().trim();
   const tbody = document.getElementById('plTableBody');
   let html = '';
@@ -2586,17 +2615,21 @@ function renderPriceListTable() {
     const sell = getProductPrice(currentSupplier, idx, 'sell');
     const pref = getProductPrice(currentSupplier, idx, 'pref');
     const cost = getProductPrice(currentSupplier, idx, 'cost');
+    const profit = sell - cost;
     const sellClass = quoteTier === 'standard' ? ' pl-price-active' : '';
     const prefClass = quoteTier === 'preferential' ? ' pl-price-active' : '';
+    const isCustom = idx >= baseLen;
     html += `<tr>
       <td><button class="pl-add-btn" onclick="addToQuote(${idx})" title="Add to quote">+</button></td>
-      <td>${esc(p.name)}</td>
+      <td>${esc(p.name)}${isCustom ? ' <span class="pl-custom-badge">custom</span>' : ''}</td>
       <td class="pl-editable${sellClass}" onclick="editPrice(${idx},'sell',this)">${formatRand(sell)}</td>
       <td class="pl-editable${prefClass}" onclick="editPrice(${idx},'pref',this)">${formatRand(pref)}</td>
       <td class="pl-editable" onclick="editPrice(${idx},'cost',this)">${cost ? formatRand(cost) : '-'}</td>
+      <td class="pl-profit-col">${cost ? formatRand(profit) : '-'}</td>
+      <td>${isCustom ? '<button class="pl-del-btn" onclick="deleteCustomProduct(' + idx + ')" title="Delete">&times;</button>' : ''}</td>
     </tr>`;
   });
-  if (!html) html = '<tr><td colspan="5" style="text-align:center; padding:20px; color:#555;">No products found</td></tr>';
+  if (!html) html = '<tr><td colspan="7" style="text-align:center; padding:20px; color:#555;">No products found</td></tr>';
   tbody.innerHTML = html;
 }
 
@@ -2605,7 +2638,7 @@ function filterPriceList() {
 }
 
 function addToQuote(idx) {
-  const products = PRICE_LISTS[currentSupplier] || [];
+  const products = getAllProducts(currentSupplier);
   const product = products[idx];
   if (!product) return;
   const existing = quoteItems.find(q => q.idx === idx);
@@ -2635,7 +2668,7 @@ function updateQuoteQty(i, qty) {
 function renderQuote() {
   const itemsEl = document.getElementById('plQuoteItems');
   const summaryEl = document.getElementById('plQuoteSummary');
-  const products = PRICE_LISTS[currentSupplier] || [];
+  const products = getAllProducts(currentSupplier);
 
   if (quoteItems.length === 0) {
     itemsEl.innerHTML = '<div class="pl-quote-empty">Click + to add products to your quote</div>';
@@ -2675,7 +2708,7 @@ function clearQuote() {
 
 function copyQuoteToClipboard() {
   if (quoteItems.length === 0) return;
-  const products = PRICE_LISTS[currentSupplier] || [];
+  const products = getAllProducts(currentSupplier);
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-ZA');
   const tierLabel = quoteTier === 'preferential' ? 'Preferential' : 'Standard';
@@ -2772,5 +2805,98 @@ async function loadPriceOverrides(supplier) {
     }
   } catch (err) {
     console.error('Price override load error:', err);
+  }
+}
+
+// ---- Custom products (user-added items per supplier) ----
+
+function getAllProducts(supplier) {
+  const base = PRICE_LISTS[supplier] || [];
+  const custom = customProducts[supplier] || [];
+  return base.concat(custom);
+}
+
+function openAddProductModal() {
+  document.getElementById('addProductModal').classList.add('active');
+  document.getElementById('apName').value = '';
+  document.getElementById('apSell').value = '';
+  document.getElementById('apPref').value = '';
+  document.getElementById('apCost').value = '';
+  document.getElementById('apProfit').textContent = '-';
+  document.getElementById('apName').focus();
+}
+
+function closeAddProductModal() {
+  document.getElementById('addProductModal').classList.remove('active');
+}
+
+function recalcAddProductProfit() {
+  const sell = parseFloat(document.getElementById('apSell').value) || 0;
+  const cost = parseFloat(document.getElementById('apCost').value) || 0;
+  const profit = sell - cost;
+  document.getElementById('apProfit').textContent = profit > 0 ? formatRand(profit) : (sell ? formatRand(profit) : '-');
+}
+
+function saveNewProduct() {
+  const name = document.getElementById('apName').value.trim();
+  const sell = parseFloat(document.getElementById('apSell').value) || 0;
+  const pref = parseFloat(document.getElementById('apPref').value) || 0;
+  const cost = parseFloat(document.getElementById('apCost').value) || 0;
+
+  if (!name) { alert('Product name is required.'); return; }
+  if (!sell) { alert('Retail price is required.'); return; }
+
+  const keywords = [name.toLowerCase()];
+  const product = { name, keywords, sell, pref: pref || sell, cost };
+
+  if (!customProducts[currentSupplier]) customProducts[currentSupplier] = [];
+  customProducts[currentSupplier].push(product);
+  saveCustomProducts(currentSupplier);
+  closeAddProductModal();
+  renderPriceListTable();
+}
+
+function deleteCustomProduct(globalIdx) {
+  const baseLen = (PRICE_LISTS[currentSupplier] || []).length;
+  const customIdx = globalIdx - baseLen;
+  if (customIdx < 0) return;
+  if (!confirm('Delete this custom product?')) return;
+  customProducts[currentSupplier].splice(customIdx, 1);
+  saveCustomProducts(currentSupplier);
+  renderPriceListTable();
+  // Remove any quote items referencing this or higher indices
+  quoteItems = quoteItems.filter(q => q.idx !== globalIdx).map(q => {
+    if (q.idx > globalIdx) q.idx--;
+    return q;
+  });
+  renderQuote();
+}
+
+function saveCustomProducts(supplier) {
+  if (!currentUser) return;
+  const key = supplierKey(supplier) + '_customProducts';
+  const data = (customProducts[supplier] || []).map(p => ({
+    name: p.name, keywords: p.keywords, sell: p.sell, pref: p.pref, cost: p.cost
+  }));
+  db.collection('users').doc(currentUser.uid)
+    .collection('priceOverrides').doc(key)
+    .set({ items: data })
+    .catch(err => console.error('Custom products save error:', err));
+}
+
+async function loadCustomProducts(supplier) {
+  if (!currentUser) return;
+  const key = supplierKey(supplier) + '_customProducts';
+  try {
+    const snap = await db.collection('users').doc(currentUser.uid)
+      .collection('priceOverrides').doc(key).get();
+    if (snap.exists) {
+      const data = snap.data();
+      customProducts[supplier] = (data.items || []).map(p => ({
+        name: p.name, keywords: p.keywords || [p.name.toLowerCase()], sell: p.sell, pref: p.pref, cost: p.cost
+      }));
+    }
+  } catch (err) {
+    console.error('Custom products load error:', err);
   }
 }

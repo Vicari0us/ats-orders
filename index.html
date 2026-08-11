@@ -54,7 +54,10 @@
   </header>
 
   <nav class="supplier-tabs" id="supplierTabs"></nav>
-  <div class="week-tabs" id="weekTabs"></div>
+  <div class="week-selector" id="weekTabs">
+    <select id="weekSelect" onchange="switchWeek(this.value || null)"></select>
+    <button class="week-add-btn" onclick="startNewWeek()" title="Start new week"><i class="fas fa-plus"></i></button>
+  </div>
 
   <div class="container">
 
@@ -224,6 +227,13 @@
 
           <div class="form-row">
             <div class="form-group">
+              <label for="priceTier"><i class="fas fa-tags"></i> Price Tier</label>
+              <select id="priceTier" onchange="autoPrice()">
+                <option value="standard">Standard</option>
+                <option value="preferential">Preferential</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label for="quantity"><i class="fas fa-cubes"></i> Total Qty</label>
               <input type="number" id="quantity" min="0" step="1" placeholder="0">
             </div>
@@ -344,6 +354,7 @@
             <button class="pl-tier-btn active" id="plTierStandard" onclick="setPriceTier('standard')">Standard</button>
             <button class="pl-tier-btn" id="plTierPref" onclick="setPriceTier('preferential')">Preferential</button>
           </div>
+          <button class="btn btn-success btn-sm" onclick="openAddProductModal()"><i class="fas fa-plus"></i> Add Product</button>
           <div class="search-wrapper pl-search">
             <i class="fas fa-search search-icon"></i>
             <input type="text" id="plSearchBox" class="search-box" placeholder="Search products..." oninput="filterPriceList()">
@@ -359,6 +370,8 @@
                   <th>Sell</th>
                   <th>Pref</th>
                   <th>Cost</th>
+                  <th>Profit</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody id="plTableBody"></tbody>
@@ -374,6 +387,46 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Add Product Modal ============ -->
+  <div class="modal-overlay" id="addProductModal">
+    <div class="modal" style="max-width:440px;">
+      <div class="modal-header">
+        <h2><i class="fas fa-plus modal-title-icon"></i>Add Product</h2>
+        <button class="modal-close" onclick="closeAddProductModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label><i class="fas fa-box-open"></i> Product Name *</label>
+          <input type="text" id="apName" placeholder="Product name">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fas fa-tag"></i> Retail (Sell) *</label>
+            <input type="number" id="apSell" min="0" step="0.01" placeholder="0.00" oninput="recalcAddProductProfit()">
+          </div>
+          <div class="form-group">
+            <label><i class="fas fa-tags"></i> Preferential</label>
+            <input type="number" id="apPref" min="0" step="0.01" placeholder="0.00">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label><i class="fas fa-receipt"></i> Cost *</label>
+            <input type="number" id="apCost" min="0" step="0.01" placeholder="0.00" oninput="recalcAddProductProfit()">
+          </div>
+          <div class="form-group">
+            <label><i class="fas fa-chart-line"></i> Profit</label>
+            <div class="ap-profit-display" id="apProfit">-</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeAddProductModal()"><i class="fas fa-xmark"></i> Cancel</button>
+        <button class="btn btn-primary" onclick="saveNewProduct()"><i class="fas fa-check"></i> Add Product</button>
       </div>
     </div>
   </div>
